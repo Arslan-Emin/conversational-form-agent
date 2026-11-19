@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 from app.jotform import DryRunSubmitter, FormSubmitter
 from app.llm_client import HistoryItem, LLMClient
 from app.prompts import build_system_prompt
+from app.rag import KnowledgeBase
 from app.state import FormState, new_dental_form
 from app.tools import ToolExecutor, to_tool_output
 
@@ -64,13 +65,16 @@ class FormAgent:
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         clock: Callable[[], datetime] | None = None,
         submitter: FormSubmitter | None = None,
+        knowledge_base: KnowledgeBase | None = None,
     ) -> None:
         self.llm = llm
         self.state = state or new_dental_form()
         # Injectable clock: evals pin "today" so relative dates resolve the same way every run.
         self._clock = clock or (lambda: datetime.now(CLINIC_TIMEZONE))
         # Default is dry-run: nothing is sent anywhere unless a real submitter is passed in.
-        self.tools = ToolExecutor(self.state, self._clock, submitter or DryRunSubmitter())
+        self.tools = ToolExecutor(
+            self.state, self._clock, submitter or DryRunSubmitter(), knowledge_base
+        )
         self.history: list[HistoryItem] = []
         self.max_iterations = max_iterations
 

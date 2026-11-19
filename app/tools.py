@@ -17,6 +17,7 @@ from typing import Any
 
 from app.jotform import FormSubmitter, JotformError
 from app.llm_client import ToolSpec
+from app.rag import KnowledgeBase
 from app.state import FormState
 from app.validation import validate_value
 
@@ -65,11 +66,36 @@ SUBMIT_FORM_SPEC = ToolSpec(
 )
 
 
+SEARCH_KNOWLEDGE_BASE_SPEC = ToolSpec(
+    name="search_knowledge_base",
+    description=(
+        "Search the clinic's FAQ document (opening hours, address, prices, cancellation "
+        "policy, payment, insurance, treatments). Use it for every question about the "
+        "clinic instead of answering from memory. Returns the most relevant passages."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "A short, self-contained search question, e.g. 'cancellation fee'.",
+            }
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    },
+)
+
+
 class ToolExecutor:
     """Holds the tool registry for one conversation and runs tool calls by name."""
 
     def __init__(
-        self, state: FormState, clock: Callable[[], datetime], submitter: FormSubmitter
+        self,
+        state: FormState,
+        clock: Callable[[], datetime],
+        submitter: FormSubmitter,
+        knowledge_base: KnowledgeBase | None = None,
     ) -> None:
         self.state = state
         self._clock = clock
@@ -82,6 +108,10 @@ class ToolExecutor:
             "submit_form": self._submit_form,
         }
         self.specs: list[ToolSpec] = [build_update_fields_spec(state), SUBMIT_FORM_SPEC]
+        self._knowledge_base = knowledge_base
+        if knowledge_base is not None:
+            self._handlers["search_knowledge_base"] = self._search_knowledge_base
+            self.specs.append(SEARCH_KNOWLEDGE_BASE_SPEC)
 
     def execute(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         handler = self._handlers.get(name)
@@ -149,6 +179,25 @@ class ToolExecutor:
         self.state.submitted = True
         self.state.submission_id = receipt.get("submission_id")
         return {"ok": True, **receipt}
+
+    def _search_knowledge_base(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        query = str(arguments.get("query") or "").strip()
+        if not query:
+            return {"ok": False, "error": "'query' must be a non-empty string."}
+        results = self._knowledge_base.search(query)
+        if not results:
+            return {
+                "ok": True,
+                "results": [],
+                "note": "Nothing relevant found. Tell the user you don't have this information.",
+            }
+        return {
+            "ok": True,
+            "results": [
+                {"title": r.chunk.title, "text": r.chunk.text, "score": round(r.score, 2)}
+                for r in results
+            ],
+        }
 
 
 def to_tool_output(result: dict[str, Any]) -> str:

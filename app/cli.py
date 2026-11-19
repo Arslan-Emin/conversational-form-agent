@@ -28,6 +28,7 @@ from app.jotform import (
     load_form_from_jotform,
 )
 from app.llm_client import create_llm_client
+from app.rag import KnowledgeBase
 from app.state import FormState, new_dental_form
 
 EXIT_COMMANDS = {"exit", "quit", "q", "çıkış"}
@@ -75,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the form agent.")
     parser.add_argument("--debug", action="store_true", help="show tool calls and results")
     parser.add_argument("--dry-run", action="store_true", help="do not send submissions")
+    parser.add_argument("--no-rag", action="store_true", help="disable FAQ search")
     args = parser.parse_args(argv)
 
     try:
@@ -84,7 +86,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 
-    agent = FormAgent(llm, state, submitter=submitter)
+    knowledge_base = None
+    if not args.no_rag:
+        print("Loading FAQ knowledge base (first run downloads the embedding model)...")
+        knowledge_base = KnowledgeBase.from_markdown_file()
+
+    agent = FormAgent(llm, state, submitter=submitter, knowledge_base=knowledge_base)
     print(f"Form agent ({llm.model}) | {mode}. Type 'exit' to quit.\n")
 
     while True:

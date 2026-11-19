@@ -348,3 +348,48 @@ def test_submission_failure_is_reported_and_form_stays_open() -> None:
     assert turn.tool_calls[0].result["ok"] is False
     assert "Submission failed" in turn.tool_calls[0].result["error"]
     assert agent.state.submitted is False
+
+
+# ------------------------------------------------------------- knowledge base
+
+
+def test_search_knowledge_base_tool_returns_passages() -> None:
+    from app.rag import KnowledgeBase, chunk_markdown
+    from tests.test_rag import MARKDOWN, KeywordEmbedder
+
+    kb = KnowledgeBase(chunk_markdown(MARKDOWN), KeywordEmbedder())
+    llm = ScriptedLLM(
+        [
+            tool_reply("search_knowledge_base", {"query": "iptal ücreti"}),
+            text_reply("24 saat öncesine kadar iptal ücretsiz."),
+        ]
+    )
+    agent = FormAgent(llm, clock=lambda: FIXED_NOW, knowledge_base=kb)
+
+    turn = agent.handle_user_message("İptal edersem ücret var mı?")
+
+    result = turn.tool_calls[0].result
+    assert result["ok"] is True
+    assert result["results"][0]["title"].startswith("Randevumu iptal")
+    assert "search_knowledge_base" in [tool.name for tool in llm.requests[0]["tools"]]
+
+
+def test_search_with_no_match_tells_model_to_admit_it() -> None:
+    from app.rag import KnowledgeBase, chunk_markdown
+    from tests.test_rag import MARKDOWN, KeywordEmbedder
+
+    kb = KnowledgeBase(chunk_markdown(MARKDOWN), KeywordEmbedder())
+    agent = make_agent(
+        [tool_reply("search_knowledge_base", {"query": "pazar"}), text_reply("Bilmiyorum.")],
+        knowledge_base=kb,
+    )
+
+    result = agent.handle_user_message("Pazar açık mısınız?").tool_calls[0].result
+
+    assert result["results"] == []
+    assert "don't have this information" in result["note"]
+
+
+def test_knowledge_base_tool_is_absent_without_a_knowledge_base() -> None:
+    agent = make_agent([])
+    assert "search_knowledge_base" not in [spec.name for spec in agent.tools.specs]
