@@ -28,3 +28,6 @@ Thumbs.db
 
 # Streamlit secrets (deploy)
 .streamlit/secrets.toml
+
+# Personal project notes (not part of the public repo)
+CLAUDE.md
