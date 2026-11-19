@@ -19,6 +19,11 @@ class FieldSpec(BaseModel):
     # Selects the validator in app/validation.py (e.g. "phone", "text").
     type: str = "text"
     required: bool = True
+    # Set when the schema comes from Jotform: question ID, question type and the
+    # raw question properties needed to build the submission payload.
+    qid: str | None = None
+    jotform_type: str | None = None
+    jotform_props: dict[str, object] = Field(default_factory=dict)
 
 
 class FieldUpdateResult(BaseModel):
@@ -29,6 +34,11 @@ class FieldUpdateResult(BaseModel):
 class FormState(BaseModel):
     fields: list[FieldSpec]
     values: dict[str, str] = Field(default_factory=dict)
+    # Incremented on every successful change. Used to check that the user
+    # confirmed exactly the values that are about to be submitted.
+    version: int = 0
+    submitted: bool = False
+    submission_id: str | None = None
 
     @property
     def field_names(self) -> list[str]:
@@ -51,6 +61,8 @@ class FormState(BaseModel):
                 continue
             self.values[name] = value
             result.updated.append(name)
+        if result.updated:
+            self.version += 1
         return result
 
     def missing_fields(self) -> list[str]:
@@ -78,7 +90,7 @@ DENTAL_APPOINTMENT_FIELDS = [
         name="appointment_datetime",
         type="appointment_datetime",
         label="Appointment date and time",
-        description="Requested appointment as an exact local date and time.",
+        description="Requested appointment as an exact local date and time (YYYY-MM-DD HH:MM).",
     ),
     FieldSpec(
         name="complaint",

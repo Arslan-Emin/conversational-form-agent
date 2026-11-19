@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 DEFAULT_PROVIDER = "deepseek"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
 DEFAULT_OPENAI_MODEL = "gpt-6-luna"
+DEFAULT_JOTFORM_BASE_URL = "https://api.jotform.com"
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,13 @@ class Settings:
     deepseek_thinking: str = "disabled"
     openai_api_key: str | None = None
     openai_model: str = DEFAULT_OPENAI_MODEL
+    jotform_api_key: str | None = None
+    jotform_form_id: str | None = None
+    jotform_base_url: str = DEFAULT_JOTFORM_BASE_URL
+
+    @property
+    def jotform_configured(self) -> bool:
+        return bool(self.jotform_api_key and self.jotform_form_id)
 
 
 def get_settings() -> Settings:
@@ -33,4 +41,7 @@ def get_settings() -> Settings:
         deepseek_thinking=(os.getenv("DEEPSEEK_THINKING") or "disabled").lower(),
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
         openai_model=os.getenv("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL,
+        jotform_api_key=os.getenv("JOTFORM_API_KEY") or None,
+        jotform_form_id=os.getenv("JOTFORM_FORM_ID") or None,
+        jotform_base_url=os.getenv("JOTFORM_BASE_URL") or DEFAULT_JOTFORM_BASE_URL,
     )
