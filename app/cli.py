@@ -1,7 +1,12 @@
 """Terminal chat with the form agent.
 
 Run with:  python -m app.cli
-Add --debug to see every tool call and its result.
+  --debug    show every tool call and its result
+  --dry-run  build the Jotform submission but do not send it
+
+If JOTFORM_API_KEY and JOTFORM_FORM_ID are set, the form schema is fetched from
+Jotform and confirmed submissions are sent there. Otherwise a built-in example
+form is used and submissions are always dry-run.
 """
 
 from __future__ import annotations
@@ -13,8 +18,17 @@ import sys
 from openai import OpenAIError
 
 from app.agent import AgentTurn, FormAgent
+from app.config import get_settings
+from app.jotform import (
+    DryRunSubmitter,
+    FormSubmitter,
+    JotformClient,
+    JotformError,
+    JotformSubmitter,
+    load_form_from_jotform,
+)
 from app.llm_client import create_llm_client
-from app.state import FormState
+from app.state import FormState, new_dental_form
 
 EXIT_COMMANDS = {"exit", "quit", "q", "çıkış"}
 
@@ -25,6 +39,8 @@ def format_state(state: FormState) -> str:
         value = state.values.get(field.name)
         mark = "x" if value else " "
         lines.append(f"    [{mark}] {field.name}: {value or '-'}")
+    if state.submitted:
+        lines.append(f"    SUBMITTED (id: {state.submission_id or 'dry-run'})")
     return "\n".join(lines)
 
 
@@ -43,19 +59,33 @@ def print_turn(turn: AgentTurn, state: FormState, debug: bool) -> None:
     print(format_state(state) + "\n")
 
 
+def build_form(dry_run: bool) -> tuple[FormState, FormSubmitter, str]:
+    settings = get_settings()
+    if not settings.jotform_configured:
+        return new_dental_form(), DryRunSubmitter(), "example form, dry-run"
+    client = JotformClient(settings.jotform_api_key, settings.jotform_base_url)
+    state = load_form_from_jotform(client, settings.jotform_form_id)
+    if dry_run:
+        return state, DryRunSubmitter(), f"Jotform form {settings.jotform_form_id}, dry-run"
+    submitter = JotformSubmitter(client, settings.jotform_form_id)
+    return state, submitter, f"Jotform form {settings.jotform_form_id}, LIVE submissions"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the form agent.")
     parser.add_argument("--debug", action="store_true", help="show tool calls and results")
+    parser.add_argument("--dry-run", action="store_true", help="do not send submissions")
     args = parser.parse_args(argv)
 
     try:
         llm = create_llm_client()
-    except RuntimeError as error:
+        state, submitter, mode = build_form(dry_run=args.dry_run)
+    except (RuntimeError, JotformError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 
-    agent = FormAgent(llm)
-    print(f"Form agent ({llm.model}). Type 'exit' to quit.\n")
+    agent = FormAgent(llm, state, submitter=submitter)
+    print(f"Form agent ({llm.model}) | {mode}. Type 'exit' to quit.\n")
 
     while True:
         try:
