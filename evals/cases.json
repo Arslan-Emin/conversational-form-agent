@@ -302,7 +302,10 @@
       "category": "rag_in_doc",
       "description": "The CLAUDE.md scenario: an FAQ question in the middle of booking.",
       "turns": [
-        {"user": "Merhaba, pazartesi öğleden sonra 15:00 için randevu almak istiyorum."},
+        {
+          "user": "Merhaba, pazartesi öğleden sonra 15:00 için randevu almak istiyorum.",
+          "expect": {"fields": {"appointment_datetime": "2026-11-23 15:00"}}
+        },
         {
           "user": "Deniz Test, 0532 123 45 67. Bu arada iptal edersem ücret var mı?",
           "expect": {"reply_contains": [["24 saat", "24 hour"]], "fields": {"full_name": "Deniz Test"}}
@@ -317,6 +320,32 @@
           "appointment_datetime": "2026-11-23 15:00",
           "complaint": {"contains_any": ["ağrı"]}
         },
+        "submitted": true
+      }
+    },
+    {
+      "id": "early_values_saved_immediately",
+      "category": "normal",
+      "description": "Values given before the agent asks for them must be saved in that same turn.",
+      "turns": [
+        {
+          "user": "Perşembe 16:30'a randevu istiyorum, dolgum düştü.",
+          "expect": {
+            "fields": {
+              "appointment_datetime": "2026-11-26 16:30",
+              "complaint": {"contains_any": ["dolgu"]}
+            }
+          }
+        },
+        {
+          "user": "Adım Selin Koç.",
+          "expect": {"fields": {"full_name": "Selin Koç"}}
+        },
+        {"user": "Numaram 0541 234 56 78."},
+        {"user": "Evet, onaylıyorum."}
+      ],
+      "final": {
+        "fields": {"phone": "0541 234 56 78"},
         "submitted": true
       }
     },
