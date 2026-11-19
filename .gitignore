@@ -19,3 +19,6 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Downloaded embedding models
+.cache/
