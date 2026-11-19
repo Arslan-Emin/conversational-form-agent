@@ -46,3 +46,15 @@ def test_missing_fields_and_completion() -> None:
 
     assert state.missing_fields() == []
     assert state.is_complete()
+
+
+def test_version_only_changes_when_a_value_changes() -> None:
+    state = new_dental_form()
+    state.update({"full_name": "Ali Veli"})
+    assert state.version == 1
+
+    state.update({"full_name": "Ali Veli"})  # same value again
+    assert state.version == 1
+
+    state.update({"full_name": "Ali Can Veli"})
+    assert state.version == 2

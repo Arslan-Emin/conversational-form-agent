@@ -29,6 +29,7 @@ class FieldSpec(BaseModel):
 class FieldUpdateResult(BaseModel):
     updated: list[str] = Field(default_factory=list)
     errors: dict[str, str] = Field(default_factory=dict)
+    changed: bool = False
 
 
 class FormState(BaseModel):
@@ -59,9 +60,14 @@ class FormState(BaseModel):
             if not value:
                 result.errors[name] = "Empty value. Ask the user for this field instead."
                 continue
+            changed = self.values.get(name) != value
             self.values[name] = value
             result.updated.append(name)
-        if result.updated:
+            # Re-saving an identical value is not a change: it must not invalidate a
+            # summary the user has already seen (see the submit_form guard).
+            if changed:
+                result.changed = True
+        if result.changed:
             self.version += 1
         return result
 
