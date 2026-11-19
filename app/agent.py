@@ -65,11 +65,11 @@ class FormAgent:
     ) -> None:
         self.llm = llm
         self.state = state or new_dental_form()
-        self.tools = ToolExecutor(self.state)
-        self.history: list[HistoryItem] = []
-        self.max_iterations = max_iterations
         # Injectable clock: evals pin "today" so relative dates resolve the same way every run.
         self._clock = clock or (lambda: datetime.now(CLINIC_TIMEZONE))
+        self.tools = ToolExecutor(self.state, self._clock)
+        self.history: list[HistoryItem] = []
+        self.max_iterations = max_iterations
 
     def handle_user_message(self, text: str) -> AgentTurn:
         """Answer one user message. On an LLM/API error, history is rolled back and the

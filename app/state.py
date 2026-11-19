@@ -16,6 +16,8 @@ class FieldSpec(BaseModel):
     name: str
     label: str
     description: str
+    # Selects the validator in app/validation.py (e.g. "phone", "text").
+    type: str = "text"
     required: bool = True
 
 
@@ -31,6 +33,9 @@ class FormState(BaseModel):
     @property
     def field_names(self) -> list[str]:
         return [field.name for field in self.fields]
+
+    def get_field(self, name: str) -> FieldSpec | None:
+        return next((field for field in self.fields if field.name == name), None)
 
     def update(self, updates: dict[str, object]) -> FieldUpdateResult:
         """Apply field updates. Unknown fields and empty values are rejected, not stored."""
@@ -59,21 +64,25 @@ class FormState(BaseModel):
 DENTAL_APPOINTMENT_FIELDS = [
     FieldSpec(
         name="full_name",
+        type="full_name",
         label="Full name",
         description="Patient's first and last name.",
     ),
     FieldSpec(
         name="phone",
+        type="phone",
         label="Phone number",
-        description="Patient's Turkish mobile phone number.",
+        description="Patient's Turkish phone number.",
     ),
     FieldSpec(
         name="appointment_datetime",
+        type="appointment_datetime",
         label="Appointment date and time",
         description="Requested appointment as an exact local date and time.",
     ),
     FieldSpec(
         name="complaint",
+        type="text",
         label="Complaint",
         description="Short description of the dental problem or reason for the visit.",
     ),

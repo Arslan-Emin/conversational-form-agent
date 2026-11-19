@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.state import FormState
+from app.validation import SLOT_MINUTES, describe_opening_hours
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are the booking assistant of a dental clinic. Patients book an appointment by \
@@ -12,6 +13,9 @@ chatting with you instead of filling in a form.
 
 # Current date and time
 {now} ({timezone}). Use this to resolve relative dates such as "tomorrow" or "next Thursday".
+
+# Clinic opening hours
+{opening_hours}. Appointments start every {slot_minutes} minutes and must fit before closing.
 
 # Form fields to collect
 {field_list}
@@ -25,7 +29,9 @@ those fields. The tool result tells you which fields are still missing.
 time), ask a short follow-up question instead of choosing for the user.
 - Store `appointment_datetime` as `YYYY-MM-DD HH:MM` (24-hour, local time). Store other fields \
 as the user stated them.
-- If a tool returns an error, fix the call or ask the user; do not pretend it succeeded.
+- Values are validated by the system. If `update_fields` returns an error for a field, that \
+value was NOT saved: explain the problem to the user in their language and ask again (for \
+appointment times, suggest a valid alternative). Never claim an invalid value was accepted.
 - When all fields are collected, show a short summary and ask the user to confirm.
 """
 
@@ -44,4 +50,6 @@ def build_system_prompt(state: FormState, now: datetime) -> str:
         now=now.strftime("%A, %Y-%m-%d %H:%M"),
         timezone=now.tzname() or "local time",
         field_list=field_list,
+        opening_hours=describe_opening_hours(),
+        slot_minutes=SLOT_MINUTES,
     )

@@ -186,3 +186,53 @@ def test_update_fields_schema_lists_form_fields() -> None:
         "complaint",
     }
     assert schema["additionalProperties"] is False
+
+
+def test_update_fields_saves_normalized_values_and_rejects_invalid_ones() -> None:
+    agent = make_agent(
+        [
+            tool_reply(
+                "update_fields",
+                {
+                    "fields": {
+                        "phone": "+90 532 123 4567",
+                        "appointment_datetime": "2026-11-22 12:00",  # Sunday: closed
+                    }
+                },
+            ),
+            text_reply("Pazar günü kapalıyız, başka bir gün seçer misiniz?"),
+        ]
+    )
+
+    turn = agent.handle_user_message("0532 123 4567, pazar 12:00")
+
+    result = turn.tool_calls[0].result
+    assert result["ok"] is False
+    assert result["updated"] == ["phone"]
+    assert "closed on Sundays" in result["errors"]["appointment_datetime"]
+    # Only the valid value reached the state, in normalized form.
+    assert agent.state.values == {"phone": "0532 123 45 67"}
+
+
+def test_invalid_change_keeps_previous_valid_value() -> None:
+    agent = make_agent(
+        [
+            tool_reply("update_fields", {"fields": {"appointment_datetime": "2026-11-26 14:00"}}),
+            text_reply("Kaydettim."),
+            tool_reply("update_fields", {"fields": {"appointment_datetime": "2026-11-19 14:00"}}),
+            text_reply("Bu tarih geçmişte."),
+        ]
+    )
+
+    agent.handle_user_message("Perşembe 14:00")
+    turn = agent.handle_user_message("Aslında dün olsun")
+
+    assert "past" in turn.tool_calls[0].result["errors"]["appointment_datetime"]
+    assert agent.state.values["appointment_datetime"] == "2026-11-26 14:00"
+
+
+def test_system_prompt_lists_opening_hours() -> None:
+    llm = ScriptedLLM([text_reply("ok")])
+    FormAgent(llm, clock=lambda: FIXED_NOW).handle_user_message("Selam")
+
+    assert "Sunday: closed" in llm.requests[0]["system"]
