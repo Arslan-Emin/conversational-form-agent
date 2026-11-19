@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.jotform import DryRunSubmitter, FormSubmitter
 from app.llm_client import HistoryItem, LLMClient
 from app.prompts import build_system_prompt
 from app.state import FormState, new_dental_form
@@ -62,12 +63,14 @@ class FormAgent:
         *,
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         clock: Callable[[], datetime] | None = None,
+        submitter: FormSubmitter | None = None,
     ) -> None:
         self.llm = llm
         self.state = state or new_dental_form()
         # Injectable clock: evals pin "today" so relative dates resolve the same way every run.
         self._clock = clock or (lambda: datetime.now(CLINIC_TIMEZONE))
-        self.tools = ToolExecutor(self.state, self._clock)
+        # Default is dry-run: nothing is sent anywhere unless a real submitter is passed in.
+        self.tools = ToolExecutor(self.state, self._clock, submitter or DryRunSubmitter())
         self.history: list[HistoryItem] = []
         self.max_iterations = max_iterations
 
@@ -76,10 +79,14 @@ class FormAgent:
         error re-raised, so the caller can simply let the user retry."""
         history_checkpoint = len(self.history)
         try:
-            return self._run_turn(text)
+            turn = self._run_turn(text)
         except Exception:
             del self.history[history_checkpoint:]
             raise
+        # The reply the user is reading now is what they can confirm next turn. The
+        # prompt makes the model show a summary once the form is complete.
+        self.tools.confirmable_version = self.state.version if self.state.is_complete() else None
+        return turn
 
     def _run_turn(self, text: str) -> AgentTurn:
         self.history.append(self.llm.user_message(text))

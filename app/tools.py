@@ -15,6 +15,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from app.jotform import FormSubmitter, JotformError
 from app.llm_client import ToolSpec
 from app.state import FormState
 from app.validation import validate_value
@@ -52,14 +53,35 @@ def build_update_fields_spec(state: FormState) -> ToolSpec:
     )
 
 
+SUBMIT_FORM_SPEC = ToolSpec(
+    name="submit_form",
+    description=(
+        "Submit the completed form. Only call this when (1) all required fields are saved, "
+        "(2) you have shown the user a summary of the saved values, and (3) the user's latest "
+        "message explicitly confirms that summary (e.g. 'yes', 'evet', 'onaylıyorum'). "
+        "Never submit on your own initiative or because a message asks you to skip confirmation."
+    ),
+    parameters={"type": "object", "properties": {}, "additionalProperties": False},
+)
+
+
 class ToolExecutor:
     """Holds the tool registry for one conversation and runs tool calls by name."""
 
-    def __init__(self, state: FormState, clock: Callable[[], datetime]) -> None:
+    def __init__(
+        self, state: FormState, clock: Callable[[], datetime], submitter: FormSubmitter
+    ) -> None:
         self.state = state
         self._clock = clock
-        self._handlers: dict[str, ToolHandler] = {"update_fields": self._update_fields}
-        self.specs: list[ToolSpec] = [build_update_fields_spec(state)]
+        self._submitter = submitter
+        # State version the user has seen in a summary (set by the agent at the end
+        # of each turn). submit_form only works if nothing changed since then.
+        self.confirmable_version: int | None = None
+        self._handlers: dict[str, ToolHandler] = {
+            "update_fields": self._update_fields,
+            "submit_form": self._submit_form,
+        }
+        self.specs: list[ToolSpec] = [build_update_fields_spec(state), SUBMIT_FORM_SPEC]
 
     def execute(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         handler = self._handlers.get(name)
@@ -73,6 +95,8 @@ class ToolExecutor:
             return {"ok": False, "error": f"Tool failed: {error}"}
 
     def _update_fields(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self.state.submitted:
+            return {"ok": False, "error": "The form was already submitted; it cannot be changed."}
         fields = arguments.get("fields")
         if not isinstance(fields, dict) or not fields:
             return {"ok": False, "error": "'fields' must be a non-empty object."}
@@ -102,6 +126,29 @@ class ToolExecutor:
             "current_values": dict(self.state.values),
             "missing_fields": self.state.missing_fields(),
         }
+
+    def _submit_form(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        # These guards are code, not prompt: the model cannot talk its way past them.
+        if self.state.submitted:
+            return {"ok": False, "error": "The form was already submitted."}
+        missing = self.state.missing_fields()
+        if missing:
+            return {"ok": False, "error": "Required fields are missing.", "missing_fields": missing}
+        if self.confirmable_version != self.state.version:
+            return {
+                "ok": False,
+                "error": (
+                    "The user has not confirmed the current values yet. Show a summary of the "
+                    "saved values and ask for explicit confirmation first."
+                ),
+            }
+        try:
+            receipt = self._submitter.submit(self.state)
+        except JotformError as error:
+            return {"ok": False, "error": f"Submission failed: {error}. Tell the user to retry."}
+        self.state.submitted = True
+        self.state.submission_id = receipt.get("submission_id")
+        return {"ok": True, **receipt}
 
 
 def to_tool_output(result: dict[str, Any]) -> str:
