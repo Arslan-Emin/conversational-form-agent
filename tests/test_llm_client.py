@@ -1,10 +1,18 @@
-"""Unit tests for the OpenAI-backed LLM client. No network calls: the SDK is faked."""
+"""Unit tests for the LLM clients. No network calls: the SDK is faked."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from openai.types.chat import ChatCompletion, ChatCompletionMessage
+from openai.types.chat.chat_completion import Choice
+from openai.types.chat.chat_completion_message_function_tool_call import (
+    ChatCompletionMessageFunctionToolCall,
+    Function,
+)
+from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
 from openai.types.responses import (
     Response,
     ResponseFunctionToolCall,
@@ -14,95 +22,133 @@ from openai.types.responses import (
 )
 
 from app.config import Settings
-from app.llm_client import OpenAIClient, ToolSpec, create_llm_client
+from app.llm_client import (
+    DEEPSEEK_BASE_URL,
+    ChatCompletionsClient,
+    OpenAIResponsesClient,
+    ToolSpec,
+    create_llm_client,
+)
+
+UPDATE_FIELDS_TOOL = ToolSpec(
+    name="update_fields",
+    description="Store extracted form fields.",
+    parameters={"type": "object", "properties": {"fields": {"type": "object"}}},
+)
 
 
-class FakeResponses:
-    def __init__(self, response: Response) -> None:
+class FakeEndpoint:
+    """Records the last request and returns a canned response."""
+
+    def __init__(self, response: Any) -> None:
         self._response = response
         self.last_request: dict[str, Any] | None = None
 
-    def create(self, **kwargs: Any) -> Response:
+    def create(self, **kwargs: Any) -> Any:
         self.last_request = kwargs
         return self._response
 
 
-class FakeSDK:
-    def __init__(self, response: Response) -> None:
-        self.responses = FakeResponses(response)
+# --------------------------------------------------------------------------- #
+# Chat Completions (DeepSeek / OpenAI-compatible)
+# --------------------------------------------------------------------------- #
 
 
-def make_response(output: list[Any], input_tokens: int = 12, output_tokens: int = 7) -> Response:
-    # model_construct skips validation so we only fill the fields we care about.
-    usage = ResponseUsage.model_construct(input_tokens=input_tokens, output_tokens=output_tokens)
-    return Response.model_construct(model="gpt-test", output=output, usage=usage)
+def fake_chat_sdk(message: ChatCompletionMessage, cached: int = 0) -> SimpleNamespace:
+    usage = CompletionUsage.model_construct(
+        prompt_tokens=20,
+        completion_tokens=5,
+        total_tokens=25,
+        prompt_tokens_details=PromptTokensDetails.model_construct(cached_tokens=cached),
+    )
+    completion = ChatCompletion.model_construct(
+        model="deepseek-test",
+        choices=[Choice.model_construct(index=0, finish_reason="stop", message=message)],
+        usage=usage,
+    )
+    return SimpleNamespace(chat=SimpleNamespace(completions=FakeEndpoint(completion)))
 
 
-def text_message(text: str) -> ResponseOutputMessage:
-    return ResponseOutputMessage.model_construct(
-        id="msg_1",
-        type="message",
-        role="assistant",
-        status="completed",
-        content=[ResponseOutputText.model_construct(type="output_text", text=text, annotations=[])],
+def tool_call_message(arguments: str) -> ChatCompletionMessage:
+    call = ChatCompletionMessageFunctionToolCall.model_construct(
+        id="call_1",
+        type="function",
+        function=Function.model_construct(name="update_fields", arguments=arguments),
+    )
+    return ChatCompletionMessage.model_construct(role="assistant", content=None, tool_calls=[call])
+
+
+def test_chat_text_response_is_normalized() -> None:
+    message = ChatCompletionMessage.model_construct(role="assistant", content="Merhaba!")
+    sdk = fake_chat_sdk(message, cached=16)
+    client = ChatCompletionsClient(
+        model="deepseek-test", extra_body={"thinking": {"type": "disabled"}}, sdk_client=sdk
     )
 
-
-def function_call(name: str, arguments: str, call_id: str = "call_1") -> ResponseFunctionToolCall:
-    return ResponseFunctionToolCall.model_construct(
-        type="function_call", call_id=call_id, name=name, arguments=arguments
-    )
-
-
-def test_text_response_is_normalized() -> None:
-    sdk = FakeSDK(make_response([text_message("Merhaba!")]))
-    client = OpenAIClient(model="gpt-test", sdk_client=sdk)
-
-    history = [client.user_message("Selam")]
-    result = client.chat(history, system="You are helpful.")
+    result = client.chat([client.user_message("Selam")], system="You are helpful.")
 
     assert result.text == "Merhaba!"
     assert result.tool_calls == []
-    assert result.model == "gpt-test"
-    assert (result.input_tokens, result.output_tokens) == (12, 7)
-    assert result.latency_ms >= 0
-    assert result.history_items[0]["type"] == "message"
+    assert (result.input_tokens, result.output_tokens, result.cached_input_tokens) == (20, 5, 16)
+    assert result.history_items == [{"role": "assistant", "content": "Merhaba!"}]
 
-    request = sdk.responses.last_request
-    assert request["input"] == [{"role": "user", "content": "Selam"}]
-    assert request["instructions"] == "You are helpful."
-    assert request["store"] is False
+    request = sdk.chat.completions.last_request
+    # System prompt is prepended per request, not stored in history.
+    assert request["messages"] == [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Selam"},
+    ]
+    assert request["extra_body"] == {"thinking": {"type": "disabled"}}
     assert "tools" not in request
 
 
-def test_function_call_is_parsed_and_tools_are_converted() -> None:
-    arguments = '{"fields": {"phone": "05321234567"}}'
-    sdk = FakeSDK(make_response([function_call("update_fields", arguments)]))
-    client = OpenAIClient(model="gpt-test", sdk_client=sdk)
-    tool = ToolSpec(
-        name="update_fields",
-        description="Store extracted form fields.",
-        parameters={"type": "object", "properties": {"fields": {"type": "object"}}},
-    )
+def test_chat_tool_call_is_parsed_and_tools_are_converted() -> None:
+    sdk = fake_chat_sdk(tool_call_message('{"fields": {"phone": "05321234567"}}'))
+    client = ChatCompletionsClient(model="deepseek-test", sdk_client=sdk)
 
-    result = client.chat([client.user_message("0532 123 45 67")], tools=[tool])
+    result = client.chat([client.user_message("0532 123 45 67")], tools=[UPDATE_FIELDS_TOOL])
 
-    assert len(result.tool_calls) == 1
     call = result.tool_calls[0]
-    assert call.id == "call_1"
-    assert call.name == "update_fields"
+    assert (call.id, call.name) == ("call_1", "update_fields")
     assert call.arguments == {"fields": {"phone": "05321234567"}}
+    assert result.history_items[0]["tool_calls"][0]["id"] == "call_1"
 
-    sent_tool = sdk.responses.last_request["tools"][0]
-    assert sent_tool["type"] == "function"
-    assert sent_tool["name"] == "update_fields"
-    assert sent_tool["parameters"] == tool.parameters
+    sent_tool = sdk.chat.completions.last_request["tools"][0]
+    assert sent_tool == {
+        "type": "function",
+        "function": {
+            "name": "update_fields",
+            "description": "Store extracted form fields.",
+            "parameters": UPDATE_FIELDS_TOOL.parameters,
+        },
+    }
+
+
+def test_chat_keeps_deepseek_reasoning_content_in_history() -> None:
+    # DeepSeek returns `reasoning_content` in thinking mode and requires it
+    # to be sent back when tools are used.
+    message = ChatCompletionMessage.model_construct(
+        role="assistant", content="Tamam.", reasoning_content="User wants an appointment."
+    )
+    client = ChatCompletionsClient(model="deepseek-test", sdk_client=fake_chat_sdk(message))
+
+    result = client.chat([client.user_message("Randevu")])
+
+    assert result.history_items[0]["reasoning_content"] == "User wants an appointment."
+
+
+def test_chat_tool_result_item_format() -> None:
+    client = ChatCompletionsClient(model="x", sdk_client=SimpleNamespace())
+    assert client.tool_result("call_1", "ok") == {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "ok",
+    }
 
 
 @pytest.mark.parametrize("raw", ["{not json", "[1, 2]"])
 def test_invalid_tool_arguments_become_none(raw: str) -> None:
-    sdk = FakeSDK(make_response([function_call("update_fields", raw)]))
-    client = OpenAIClient(model="gpt-test", sdk_client=sdk)
+    client = ChatCompletionsClient(model="x", sdk_client=fake_chat_sdk(tool_call_message(raw)))
 
     call = client.chat([client.user_message("hi")]).tool_calls[0]
 
@@ -110,15 +156,73 @@ def test_invalid_tool_arguments_become_none(raw: str) -> None:
     assert call.raw_arguments == raw
 
 
-def test_tool_result_item_format() -> None:
-    client = OpenAIClient(model="gpt-test", sdk_client=FakeSDK(make_response([])))
-    assert client.tool_result("call_1", "ok") == {
-        "type": "function_call_output",
-        "call_id": "call_1",
-        "output": "ok",
-    }
+# --------------------------------------------------------------------------- #
+# OpenAI Responses API
+# --------------------------------------------------------------------------- #
 
 
-def test_create_llm_client_requires_api_key() -> None:
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-        create_llm_client(Settings(openai_api_key=None, openai_model="gpt-test"))
+def fake_responses_sdk(output: list[Any]) -> SimpleNamespace:
+    usage = ResponseUsage.model_construct(input_tokens=12, output_tokens=7)
+    response = Response.model_construct(model="gpt-test", output=output, usage=usage)
+    return SimpleNamespace(responses=FakeEndpoint(response))
+
+
+def test_responses_text_response_is_normalized() -> None:
+    text = ResponseOutputText.model_construct(type="output_text", text="Merhaba!", annotations=[])
+    message = ResponseOutputMessage.model_construct(
+        id="msg_1", type="message", role="assistant", status="completed", content=[text]
+    )
+    sdk = fake_responses_sdk([message])
+    client = OpenAIResponsesClient(model="gpt-test", sdk_client=sdk)
+
+    result = client.chat([client.user_message("Selam")], system="You are helpful.")
+
+    assert result.text == "Merhaba!"
+    assert (result.input_tokens, result.output_tokens) == (12, 7)
+    request = sdk.responses.last_request
+    assert request["instructions"] == "You are helpful."
+    assert request["store"] is False
+
+
+def test_responses_function_call_is_parsed() -> None:
+    call = ResponseFunctionToolCall.model_construct(
+        type="function_call", call_id="call_1", name="update_fields", arguments='{"fields": {}}'
+    )
+    sdk = fake_responses_sdk([call])
+    client = OpenAIResponsesClient(model="gpt-test", sdk_client=sdk)
+
+    result = client.chat([client.user_message("hi")], tools=[UPDATE_FIELDS_TOOL])
+
+    assert result.tool_calls[0].arguments == {"fields": {}}
+    assert sdk.responses.last_request["tools"][0]["name"] == "update_fields"
+
+
+# --------------------------------------------------------------------------- #
+# Factory
+# --------------------------------------------------------------------------- #
+
+
+def test_factory_builds_deepseek_client() -> None:
+    client = create_llm_client(Settings(llm_provider="deepseek", deepseek_api_key="sk-test"))
+
+    assert isinstance(client, ChatCompletionsClient)
+    assert client.model == "deepseek-flash"
+    assert str(client._client.base_url).rstrip("/") == DEEPSEEK_BASE_URL
+    assert client._extra_body == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.parametrize(
+    ("settings", "error"),
+    [
+        (Settings(llm_provider="deepseek"), "DEEPSEEK_API_KEY"),
+        (Settings(llm_provider="openai"), "OPENAI_API_KEY"),
+        (Settings(llm_provider="foo"), "Unknown LLM_PROVIDER"),
+        (
+            Settings(llm_provider="deepseek", deepseek_api_key="k", deepseek_thinking="maybe"),
+            "DEEPSEEK_THINKING",
+        ),
+    ],
+)
+def test_factory_fails_fast_on_bad_config(settings: Settings, error: str) -> None:
+    with pytest.raises(RuntimeError, match=error):
+        create_llm_client(settings)
