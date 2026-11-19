@@ -28,10 +28,12 @@ from typing import Any
 
 from app.agent import CLINIC_TIMEZONE, FormAgent
 from app.config import get_settings
+from app.factory import create_traced_llm, create_tracer
 from app.jotform import DryRunSubmitter
-from app.llm_client import LLMClient, create_llm_client
+from app.llm_client import LLMClient
 from app.rag import KnowledgeBase
 from app.state import new_dental_form
+from app.tracing import Tracer
 
 EVALS_DIR = Path(__file__).resolve().parent
 DEFAULT_CASES_PATH = EVALS_DIR / "cases.json"
@@ -129,13 +131,16 @@ def evaluate_expectations(
 # --------------------------------------------------------------------------- #
 
 
-def run_case(case: dict[str, Any], llm: LLMClient, knowledge_base: KnowledgeBase) -> dict[str, Any]:
+def run_case(
+    case: dict[str, Any], llm: LLMClient, knowledge_base: KnowledgeBase, tracer: Tracer
+) -> dict[str, Any]:
     agent = FormAgent(
         llm,
         new_dental_form(),
         clock=lambda: EVAL_NOW,
         submitter=DryRunSubmitter(),
         knowledge_base=knowledge_base,
+        tracer=tracer,
     )
     category = case["category"]
     checks: list[CheckResult] = []
@@ -192,6 +197,7 @@ def run_case(case: dict[str, Any], llm: LLMClient, knowledge_base: KnowledgeBase
     return {
         "id": case["id"],
         "category": category,
+        "conversation_id": agent.conversation_id,
         "passed": error is None and all(c.passed for c in checks),
         "error": error,
         "expected_submit": case.get("final", {}).get("submitted"),
@@ -341,14 +347,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     settings = get_settings()
-    llm = create_llm_client(settings)
+    run_at = datetime.now(UTC)
+    # Evals use fake data only, so full content is traced: project 2 can replay them.
+    trace_file = f"eval_{run_at:%Y%m%d-%H%M%S}.jsonl"
+    tracer = create_tracer(settings, file_name=trace_file, include_content=True)
+    llm = create_traced_llm(settings, tracer)
     runs = [case for case in cases for _ in range(args.repeats)]
     print(f"Running {len(cases)} case(s) x {args.repeats} on {llm.model}...")
     knowledge_base = KnowledgeBase.from_markdown_file()
 
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        results = list(pool.map(lambda case: run_case(case, llm, knowledge_base), runs))
+        results = list(pool.map(lambda case: run_case(case, llm, knowledge_base, tracer), runs))
     for r in results:
         print(f"  {'PASS' if r['passed'] else 'FAIL'}  {r['id']}")
 
@@ -357,7 +367,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_save:
         RESULTS_DIR.mkdir(exist_ok=True)
-        run_at = datetime.now(UTC)
         path = RESULTS_DIR / f"{run_at:%Y%m%d-%H%M%S}_{llm.model}.json"
         run_info = {
             "run_at_utc": run_at.isoformat(timespec="seconds"),
@@ -369,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
             "eval_clock": EVAL_NOW.isoformat(),
             "cases_file": args.cases.name,
             "repeats": args.repeats,
+            "trace_file": f"{settings.trace_dir}/{trace_file}" if settings.trace_enabled else None,
             "wall_time_s": round(time.perf_counter() - started, 1),
         }
         payload = {"run": run_info, "summary": summary, "cases": results}

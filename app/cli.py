@@ -18,9 +18,8 @@ import sys
 from openai import OpenAIError
 
 from app.agent import AgentTurn, FormAgent
-from app.factory import load_form_setup
+from app.factory import create_traced_llm, create_tracer, load_form_setup
 from app.jotform import JotformError
-from app.llm_client import create_llm_client
 from app.rag import KnowledgeBase
 from app.state import FormState
 
@@ -61,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        llm = create_llm_client()
+        tracer = create_tracer()
+        llm = create_traced_llm(tracer=tracer)
         setup = load_form_setup()
     except (RuntimeError, JotformError) as error:
         print(f"Error: {error}", file=sys.stderr)
@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         setup.new_state(),
         submitter=setup.create_submitter(live=live),
         knowledge_base=knowledge_base,
+        tracer=tracer,
     )
     mode = "LIVE submissions" if live else "dry-run"
     print(f"Form agent ({llm.model}) | {setup.description}, {mode}. Type 'exit' to quit.\n")

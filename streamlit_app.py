@@ -11,10 +11,11 @@ import streamlit as st
 from openai import OpenAIError
 
 from app.agent import AgentTurn, FormAgent
-from app.factory import FormSetup, load_form_setup
+from app.factory import FormSetup, create_traced_llm, create_tracer, load_form_setup
 from app.jotform import JotformError
-from app.llm_client import LLMClient, create_llm_client
+from app.llm_client import LLMClient
 from app.rag import KnowledgeBase
+from app.tracing import Tracer
 
 EXAMPLE_PROMPTS = [
     "Merhaba, yarın öğleden sonra dişim için randevu almak istiyorum",
@@ -30,9 +31,14 @@ st.set_page_config(page_title="Form Agent", page_icon="🦷", layout="wide")
 # --------------------------------------------------------------------------- #
 
 
+@st.cache_resource
+def get_tracer() -> Tracer:
+    return create_tracer()
+
+
 @st.cache_resource(show_spinner="Connecting to the LLM...")
 def get_llm() -> LLMClient:
-    return create_llm_client()
+    return create_traced_llm(tracer=get_tracer())
 
 
 @st.cache_resource(show_spinner="Loading the form...", ttl=600)
@@ -57,6 +63,7 @@ def start_conversation() -> None:
         setup.new_state(),
         submitter=setup.create_submitter(live=False),
         knowledge_base=get_knowledge_base(),
+        tracer=get_tracer(),
     )
     st.session_state.messages = []  # [{"role", "content", "turn"}]
 
