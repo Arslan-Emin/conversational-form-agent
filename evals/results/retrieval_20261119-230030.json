@@ -1,0 +1,52 @@
+[
+  {
+    "model": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "top1": "15/18",
+    "top3": "18/18",
+    "min_correct_score_in_top3": 0.601,
+    "max_out_of_scope_score": 0.683,
+    "load_s": 3.2,
+    "ms_per_query": 12.2,
+    "top1_misses": [
+      {
+        "query": "Diş beyazlatma ücreti ne kadar",
+        "got": "Dolgu fiyatı ne kadar?"
+      },
+      {
+        "query": "Diş taşı temizliği fiyatı",
+        "got": "Dolgu fiyatı ne kadar?"
+      },
+      {
+        "query": "How much is teeth whitening?",
+        "got": "Diş taşı temizliği ne kadar?"
+      }
+    ]
+  },
+  {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "top1": "14/18",
+    "top3": "16/18",
+    "min_correct_score_in_top3": 0.0,
+    "max_out_of_scope_score": 0.537,
+    "load_s": 1.0,
+    "ms_per_query": 3.9,
+    "top1_misses": [
+      {
+        "query": "Diş beyazlatma ücreti ne kadar",
+        "got": "Dolgu fiyatı ne kadar?"
+      },
+      {
+        "query": "Pazar günü açık mısınız",
+        "got": "Resmi tatillerde açık mısınız?"
+      },
+      {
+        "query": "İptal ücreti var mı",
+        "got": "Hangi ödeme yöntemlerini kabul ediyorsunuz?"
+      },
+      {
+        "query": "How much is teeth whitening?",
+        "got": "Dolgu fiyatı ne kadar?"
+      }
+    ]
+  }
+]

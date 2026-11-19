@@ -1,0 +1,31 @@
+{
+  "_comment": "Retrieval-only benchmark (no LLM). 'expected' is a case-insensitive substring of the FAQ heading that should be retrieved. Out-of-scope queries have no answer in the FAQ.",
+  "in_scope": [
+    {"query": "İptal edersem ücret var mı?", "expected": "iptal edersem"},
+    {"query": "randevumu iptal etmek istiyorum para kesilir mi", "expected": "iptal"},
+    {"query": "Diş beyazlatma ücreti ne kadar", "expected": "beyazlatma"},
+    {"query": "Pazar günü açık mısınız", "expected": "çalışma saatleri"},
+    {"query": "Kanal tedavisi kaç para", "expected": "kanal"},
+    {"query": "Kredi kartına taksit yapıyor musunuz", "expected": "ödeme"},
+    {"query": "Otopark var mı", "expected": "otopark"},
+    {"query": "İngilizce konuşan doktor var mı", "expected": "ingilizce"},
+    {"query": "çocuğum 3 yaşında bakar mısınız", "expected": "çocuk"},
+    {"query": "Çalışma saatleriniz nedir", "expected": "çalışma saatleri"},
+    {"query": "İptal ücreti var mı", "expected": "iptal"},
+    {"query": "Klinik nerede", "expected": "nerede"},
+    {"query": "Diş taşı temizliği fiyatı", "expected": "taşı"},
+    {"query": "Hamileyim tedavi olabilir miyim", "expected": "hamile"},
+    {"query": "Sigorta geçerli mi", "expected": "sigorta"},
+    {"query": "geç kalırsam ne olur", "expected": "geç kalırsam"},
+    {"query": "How much is teeth whitening?", "expected": "beyazlatma"},
+    {"query": "Is there a cancellation fee?", "expected": "iptal"}
+  ],
+  "out_of_scope": [
+    "Hekimlerin isimleri",
+    "Ortodonti tel tedavisi",
+    "Botoks",
+    "Diş macunu önerisi",
+    "Wifi şifresi",
+    "Do you do braces?"
+  ]
+}
