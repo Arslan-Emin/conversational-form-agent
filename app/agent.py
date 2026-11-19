@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from app.jotform import DryRunSubmitter, FormSubmitter
 from app.llm_client import HistoryItem, LLMClient
+from app.pricing import estimate_cost_usd
 from app.prompts import build_system_prompt
 from app.rag import KnowledgeBase
 from app.state import FormState, new_dental_form
@@ -51,7 +52,10 @@ class AgentTurn:
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     llm_calls: int = 0
     input_tokens: int = 0
+    cached_input_tokens: int = 0
     output_tokens: int = 0
+    # None if the model's price is unknown (see app/pricing.py).
+    cost_usd: float | None = 0.0
     latency_ms: float = 0.0
     hit_iteration_limit: bool = False
 
@@ -101,7 +105,17 @@ class FormAgent:
             response = self.llm.chat(self.history, system=system, tools=self.tools.specs)
             turn.llm_calls += 1
             turn.input_tokens += response.input_tokens
+            turn.cached_input_tokens += response.cached_input_tokens
             turn.output_tokens += response.output_tokens
+            call_cost = estimate_cost_usd(
+                response.model,
+                response.input_tokens,
+                response.cached_input_tokens,
+                response.output_tokens,
+            )
+            turn.cost_usd = (
+                None if call_cost is None or turn.cost_usd is None else turn.cost_usd + call_cost
+            )
             turn.latency_ms += response.latency_ms
             self.history.extend(response.history_items)
 
