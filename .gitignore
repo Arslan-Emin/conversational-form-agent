@@ -22,3 +22,9 @@ Thumbs.db
 
 # Downloaded embedding models
 .cache/
+
+# Local editor/agent tooling
+.claude/
+
+# Streamlit secrets (deploy)
+.streamlit/secrets.toml
