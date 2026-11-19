@@ -19,6 +19,7 @@ Why so simple:
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -102,6 +103,9 @@ class KnowledgeBase:
         self._embedder = embedder
         # Normalize once, so cosine similarity becomes a plain dot product at query time.
         self._matrix = _normalize(embedder.embed([c.embedding_text for c in chunks]))
+        # One knowledge base is shared by all Streamlit sessions and parallel eval
+        # runs; the embedding model is not guaranteed to be thread-safe.
+        self._lock = threading.Lock()
 
     @classmethod
     def from_markdown_file(
@@ -113,7 +117,8 @@ class KnowledgeBase:
     def search(
         self, query: str, top_k: int = DEFAULT_TOP_K, min_score: float = DEFAULT_MIN_SCORE
     ) -> list[SearchResult]:
-        query_vector = _normalize(self._embedder.embed([query]))[0]
+        with self._lock:
+            query_vector = _normalize(self._embedder.embed([query]))[0]
         scores = self._matrix @ query_vector
         best = np.argsort(scores)[::-1][:top_k]
         return [
