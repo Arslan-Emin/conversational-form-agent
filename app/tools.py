@@ -99,7 +99,7 @@ class ToolExecutor:
     ) -> None:
         self.state = state
         self._clock = clock
-        self._submitter = submitter
+        self.submitter = submitter
         # State version the user has seen in a summary (set by the agent at the end
         # of each turn). submit_form only works if nothing changed since then.
         self.confirmable_version: int | None = None
@@ -173,7 +173,7 @@ class ToolExecutor:
                 ),
             }
         try:
-            receipt = self._submitter.submit(self.state)
+            receipt = self.submitter.submit(self.state)
         except JotformError as error:
             return {"ok": False, "error": f"Submission failed: {error}. Tell the user to retry."}
         self.state.submitted = True

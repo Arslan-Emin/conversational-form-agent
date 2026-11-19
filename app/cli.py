@@ -18,18 +18,11 @@ import sys
 from openai import OpenAIError
 
 from app.agent import AgentTurn, FormAgent
-from app.config import get_settings
-from app.jotform import (
-    DryRunSubmitter,
-    FormSubmitter,
-    JotformClient,
-    JotformError,
-    JotformSubmitter,
-    load_form_from_jotform,
-)
+from app.factory import load_form_setup
+from app.jotform import JotformError
 from app.llm_client import create_llm_client
 from app.rag import KnowledgeBase
-from app.state import FormState, new_dental_form
+from app.state import FormState
 
 EXIT_COMMANDS = {"exit", "quit", "q", "çıkış"}
 
@@ -60,18 +53,6 @@ def print_turn(turn: AgentTurn, state: FormState, debug: bool) -> None:
     print(format_state(state) + "\n")
 
 
-def build_form(dry_run: bool) -> tuple[FormState, FormSubmitter, str]:
-    settings = get_settings()
-    if not settings.jotform_configured:
-        return new_dental_form(), DryRunSubmitter(), "example form, dry-run"
-    client = JotformClient(settings.jotform_api_key, settings.jotform_base_url)
-    state = load_form_from_jotform(client, settings.jotform_form_id)
-    if dry_run:
-        return state, DryRunSubmitter(), f"Jotform form {settings.jotform_form_id}, dry-run"
-    submitter = JotformSubmitter(client, settings.jotform_form_id)
-    return state, submitter, f"Jotform form {settings.jotform_form_id}, LIVE submissions"
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the form agent.")
     parser.add_argument("--debug", action="store_true", help="show tool calls and results")
@@ -81,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         llm = create_llm_client()
-        state, submitter, mode = build_form(dry_run=args.dry_run)
+        setup = load_form_setup()
     except (RuntimeError, JotformError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
@@ -91,8 +72,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Loading FAQ knowledge base (first run downloads the embedding model)...")
         knowledge_base = KnowledgeBase.from_markdown_file()
 
-    agent = FormAgent(llm, state, submitter=submitter, knowledge_base=knowledge_base)
-    print(f"Form agent ({llm.model}) | {mode}. Type 'exit' to quit.\n")
+    live = setup.can_submit_live and not args.dry_run
+    agent = FormAgent(
+        llm,
+        setup.new_state(),
+        submitter=setup.create_submitter(live=live),
+        knowledge_base=knowledge_base,
+    )
+    mode = "LIVE submissions" if live else "dry-run"
+    print(f"Form agent ({llm.model}) | {setup.description}, {mode}. Type 'exit' to quit.\n")
 
     while True:
         try:
