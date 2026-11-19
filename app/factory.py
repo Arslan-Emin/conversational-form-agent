@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 from app.config import Settings, get_settings
 from app.jotform import (
@@ -13,7 +15,38 @@ from app.jotform import (
     JotformSubmitter,
     fields_from_questions,
 )
+from app.llm_client import LLMClient, create_llm_client
 from app.state import DENTAL_APPOINTMENT_FIELDS, FieldSpec, FormState
+from app.tracing import JsonlFileSink, TracedLLMClient, Tracer
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def create_tracer(
+    settings: Settings | None = None,
+    *,
+    file_name: str | None = None,
+    include_content: bool | None = None,
+) -> Tracer:
+    """Tracer writing JSONL to TRACE_DIR (one file per UTC day unless `file_name` is given)."""
+    settings = settings or get_settings()
+    if include_content is None:
+        include_content = settings.trace_include_content
+    if not settings.trace_enabled:
+        return Tracer(include_content=include_content)
+    trace_dir = Path(settings.trace_dir)
+    if not trace_dir.is_absolute():
+        trace_dir = PROJECT_ROOT / trace_dir
+    name = file_name or f"{datetime.now(UTC):%Y-%m-%d}.jsonl"
+    return Tracer([JsonlFileSink(trace_dir / name)], include_content=include_content)
+
+
+def create_traced_llm(settings: Settings | None = None, tracer: Tracer | None = None) -> LLMClient:
+    """The LLM client the app uses: provider client wrapped with tracing."""
+    settings = settings or get_settings()
+    return TracedLLMClient(
+        create_llm_client(settings), tracer or create_tracer(settings), settings.llm_provider
+    )
 
 
 @dataclass(frozen=True)
