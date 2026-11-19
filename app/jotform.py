@@ -6,10 +6,15 @@ Verified against Jotform's official Python client (github.com/jotform/jotform-ap
 - submissions are POSTed form-urlencoded as `submission[<qid>]=value`, and
   compound fields use `submission[<qid>][<subfield>]=value`.
 
-Sub-field names for compound question types (full name, phone, date/time) are
-not documented there; `build_answer_parts` follows Jotform's question
-properties and must be checked once against a real form
-(`python -m app.jotform questions` prints them).
+Sub-field names for compound question types are not documented there. They were
+verified with live test submissions (read back via GET /submission/{id}, then
+deleted) on a form with Full Name, Phone (input mask) and Date/Time (24h) fields:
+- control_fullname -> [first], [last]
+- control_phone (masked) -> [full], formatted with the question's input mask
+- control_datetime -> [year], [month], [day], [hour], [min]; Jotform parses these
+  into its own datetime value.
+The phone-without-mask and AM/PM variants follow the same conventions but were not
+tested live.
 
 Run `python -m app.jotform questions` to print the configured form's questions.
 """
@@ -147,6 +152,18 @@ def load_form_from_jotform(client: JotformClient, form_id: str) -> FormState:
 # --------------------------------------------------------------------------- #
 
 
+def apply_input_mask(digits: str, mask: object) -> str:
+    """Fill a Jotform input mask such as "(###) ###-####" with digits.
+
+    Falls back to the plain digits if the mask does not have one slot per digit,
+    so we never send a half-filled mask.
+    """
+    if not isinstance(mask, str) or mask.count("#") != len(digits):
+        return digits
+    remaining = iter(digits)
+    return "".join(next(remaining) if char == "#" else char for char in mask)
+
+
 def build_answer_parts(field: FieldSpec, value: str) -> dict[str, str] | str:
     """Split a normalized value into Jotform sub-fields where the question type needs it.
 
@@ -160,9 +177,9 @@ def build_answer_parts(field: FieldSpec, value: str) -> dict[str, str] | str:
     if field.jotform_type == "control_phone":
         # Normalized as "0532 123 45 67". With an input mask Jotform stores one "full"
         # value; without one it has separate area code and number boxes.
+        digits = value.replace(" ", "")[1:]  # 10 digits without the leading 0
         if field.jotform_props.get("inputMask") == "enable":
-            return {"full": value}
-        digits = value.replace(" ", "")[1:]
+            return {"full": apply_input_mask(digits, field.jotform_props.get("inputMaskValue"))}
         return {"area": digits[:3], "phone": digits[3:]}
 
     if field.jotform_type == "control_datetime":

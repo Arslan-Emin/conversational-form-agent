@@ -13,6 +13,7 @@ from app.jotform import (
     JotformClient,
     JotformError,
     JotformSubmitter,
+    apply_input_mask,
     build_submission_payload,
     fields_from_questions,
     load_form_from_jotform,
@@ -37,6 +38,7 @@ QUESTIONS = {
         "order": "3",
         "required": "Yes",
         "inputMask": "enable",
+        "inputMaskValue": "(###) ###-####",
     },
     "5": {
         "qid": "5",
@@ -168,7 +170,7 @@ def test_payload_splits_compound_fields() -> None:
     assert build_submission_payload(jotform_state()) == {
         "submission[3][first]": "Ayşe Gül",
         "submission[3][last]": "Çınar",
-        "submission[4][full]": "0532 123 45 67",
+        "submission[4][full]": "(532) 123-4567",
         "submission[5][year]": "2026",
         "submission[5][month]": "11",
         "submission[5][day]": "26",
@@ -228,3 +230,17 @@ def test_jotform_submitter_returns_submission_id() -> None:
     receipt = JotformSubmitter(client, "123").submit(jotform_state())
 
     assert receipt == {"dry_run": False, "submission_id": "123456789"}
+
+
+@pytest.mark.parametrize(
+    ("mask", "expected"),
+    [
+        ("(###) ###-####", "(532) 123-4567"),
+        ("### ### ## ##", "532 123 45 67"),
+        ("+90 (###) ### ####", "+90 (532) 123 4567"),
+        ("(###) ###-###", "5321234567"),  # wrong slot count: fall back to digits
+        (None, "5321234567"),
+    ],
+)
+def test_apply_input_mask(mask, expected) -> None:
+    assert apply_input_mask("5321234567", mask) == expected
