@@ -1,0 +1,41 @@
+{
+  "source_trace": "logs/traces/eval_20261119-231456.jsonl",
+  "eval_results": "evals/results/20261119-231456_deepseek-flash.json",
+  "summary": {
+    "conversations": 78,
+    "llm_calls": 344,
+    "llm_errors": 0,
+    "models": [
+      "deepseek-flash"
+    ],
+    "input_tokens": 659834,
+    "cached_input_tokens": 588158,
+    "output_tokens": 22942,
+    "cost_usd": 0.052562,
+    "calls_without_price": 0,
+    "llm_latency_ms": {
+      "p50": 938.2,
+      "p95": 1608.6,
+      "max": 3170.8
+    },
+    "turns": 177,
+    "turn_latency_ms": {
+      "p50": 1912.5,
+      "p95": 2723.4
+    },
+    "tools": {
+      "update_fields": {
+        "calls": 104,
+        "failed": 11
+      },
+      "submit_form": {
+        "calls": 45,
+        "failed": 0
+      },
+      "search_knowledge_base": {
+        "calls": 21,
+        "failed": 0
+      }
+    }
+  }
+}
