@@ -393,3 +393,14 @@ def test_search_with_no_match_tells_model_to_admit_it() -> None:
 def test_knowledge_base_tool_is_absent_without_a_knowledge_base() -> None:
     agent = make_agent([])
     assert "search_knowledge_base" not in [spec.name for spec in agent.tools.specs]
+
+
+def test_system_prompt_has_upcoming_days_table() -> None:
+    from app.prompts import format_upcoming_days
+
+    table = format_upcoming_days(FIXED_NOW)  # Friday 2026-11-20
+
+    lines = table.splitlines()
+    assert len(lines) == 7
+    assert lines[0] == "- Saturday (Cumartesi): 2026-11-21 tomorrow"
+    assert "- Thursday (Perşembe): 2026-11-26" in lines

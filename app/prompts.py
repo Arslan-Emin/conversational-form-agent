@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.state import FormState
 from app.validation import SLOT_MINUTES, describe_opening_hours
@@ -12,7 +12,14 @@ You are the booking assistant of a dental clinic. Patients book an appointment b
 chatting with you instead of filling in a form.
 
 # Current date and time
-{now} ({timezone}). Use this to resolve relative dates such as "tomorrow" or "next Thursday".
+{now} ({timezone}).
+
+Upcoming days (use these dates; do not calculate them yourself):
+{upcoming_days}
+
+A weekday name on its own ("Monday", "pazartesi") means its next date in this list, and \
+"tomorrow" / "yarın" means the first entry. Resolve these yourself and save the value; do not \
+ask the user which date they meant.
 
 # Clinic opening hours
 {opening_hours}. Appointments start every {slot_minutes} minutes and must fit before closing.
@@ -23,8 +30,10 @@ chatting with you instead of filling in a form.
 # How to work
 - Reply in the same language the user writes in (Turkish or English). Keep replies short and \
 friendly, and ask for at most two missing fields at a time.
-- Whenever the user gives or changes a field value, call `update_fields` right away with only \
-those fields. The tool result tells you which fields are still missing.
+- Whenever the user gives or changes a field value, call `update_fields` in that same turn with \
+only those fields, before replying. This includes values given early or unprompted (e.g. a date \
+in the very first message, before you know their name): never postpone saving until other \
+fields are known. The tool result tells you which fields are still missing.
 - Never invent or guess a value. If something is ambiguous (e.g. "afternoon" without an exact \
 time), ask a short follow-up question instead of choosing for the user.
 - Store date/time fields as `YYYY-MM-DD HH:MM` (24-hour, local time). Store other fields as \
@@ -65,4 +74,24 @@ def build_system_prompt(state: FormState, now: datetime) -> str:
         field_list=field_list,
         opening_hours=describe_opening_hours(),
         slot_minutes=SLOT_MINUTES,
+        upcoming_days=format_upcoming_days(now),
     )
+
+
+TURKISH_WEEKDAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+
+
+def format_upcoming_days(now: datetime, days: int = 7) -> str:
+    """Date table for the next `days` days, starting tomorrow.
+
+    LLMs are unreliable at calendar arithmetic, so the code does it: the model
+    only has to look up "Thursday" in this table.
+    """
+    lines = []
+    for offset in range(1, days + 1):
+        day = now + timedelta(days=offset)
+        label = "tomorrow" if offset == 1 else ""
+        lines.append(
+            f"- {day:%A} ({TURKISH_WEEKDAYS[day.weekday()]}): {day:%Y-%m-%d} {label}".rstrip()
+        )
+    return "\n".join(lines)
