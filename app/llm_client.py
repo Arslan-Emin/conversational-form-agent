@@ -74,6 +74,8 @@ class LLMClient(Protocol):
 
     def user_message(self, text: str) -> HistoryItem: ...
 
+    def assistant_message(self, text: str) -> HistoryItem: ...
+
     def tool_result(self, call_id: str, output: str) -> HistoryItem: ...
 
     def chat(
@@ -110,6 +112,9 @@ class ChatCompletionsClient:
 
     def user_message(self, text: str) -> HistoryItem:
         return {"role": "user", "content": text}
+
+    def assistant_message(self, text: str) -> HistoryItem:
+        return {"role": "assistant", "content": text}
 
     def tool_result(self, call_id: str, output: str) -> HistoryItem:
         return {"role": "tool", "tool_call_id": call_id, "content": output}
@@ -175,6 +180,9 @@ class OpenAIResponsesClient:
 
     def user_message(self, text: str) -> HistoryItem:
         return {"role": "user", "content": text}
+
+    def assistant_message(self, text: str) -> HistoryItem:
+        return {"role": "assistant", "content": text}
 
     def tool_result(self, call_id: str, output: str) -> HistoryItem:
         return {"type": "function_call_output", "call_id": call_id, "output": output}
