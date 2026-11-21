@@ -180,6 +180,16 @@ case still passed. Its one failure was saying a date was saved without saving it
 which pushed the confirmation a turn late. Both are invisible to the end-state
 checks and were found in the tool-call records.
 
+### Regression gate in CI
+
+Evals call a real LLM, so they run locally and their result files are committed.
+CI then checks the newest committed run against the accepted baseline (named in
+[evals/BASELINE](evals/BASELINE)) with the
+[eval platform's](https://github.com/Arslan-Emin/llm-eval-platform) gate: a wrong
+submit, a crash, a significant pass-rate drop or a case that breaks in most of its
+repeats fails the build; single flaky repeats and cost or latency increases are
+reported as warnings on the run's summary page. No API key is needed in CI.
+
 ### Retrieval benchmark
 
 18 Turkish and English questions with a known answer, 6 without
