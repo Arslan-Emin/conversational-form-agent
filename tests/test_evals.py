@@ -99,6 +99,14 @@ def test_summary_rates() -> None:
     assert summary["avg_turn_latency_s"] == 1.5
 
 
+def test_case_clock_defaults_to_friday_and_can_be_overridden() -> None:
+    from evals.run_evals import EVAL_NOW, case_clock
+
+    assert case_clock({}) == EVAL_NOW
+    saturday = case_clock({"now": "2026-11-21T10:00"})
+    assert (saturday.weekday(), saturday.hour, saturday.tzinfo) == (5, 10, EVAL_NOW.tzinfo)
+
+
 def test_cases_file_is_well_formed() -> None:
     cases = json.loads(DEFAULT_CASES_PATH.read_text(encoding="utf-8"))["cases"]
 

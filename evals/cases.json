@@ -247,6 +247,82 @@
       }
     },
     {
+      "id": "date_today",
+      "category": "dates",
+      "description": "'Bugün' (today) resolves to today's date.",
+      "turns": [
+        {
+          "user": "Ali Veli, 0532 123 45 67. Bugün saat 16:00'da gelebilir miyim? Kontrol için.",
+          "expect": {"fields": {"appointment_datetime": "2026-11-20 16:00"}}
+        },
+        {"user": "Evet, onaylıyorum."}
+      ],
+      "final": {"submitted": true}
+    },
+    {
+      "id": "date_saturday_tomorrow_is_sunday",
+      "category": "dates",
+      "now": "2026-11-21T10:00",
+      "description": "On a Saturday, 'yarın' is Sunday (closed), not Saturday.",
+      "turns": [
+        {
+          "user": "Yarın saat 11:00 için randevu alabilir miyim?",
+          "expect": {
+            "fields": {"appointment_datetime": null},
+            "reply_contains": [["pazar", "sunday"], ["kapalı", "closed"]],
+            "reply_not_contains": ["yarın cumartesi"]
+          }
+        }
+      ],
+      "final": {"submitted": false}
+    },
+    {
+      "id": "date_saturday_hours_question",
+      "category": "dates",
+      "now": "2026-11-21T10:00",
+      "description": "Reproduces a live-demo bug: asked on a Saturday about Saturday hours, the agent said 'yarın cumartesi (22 Kasım)'.",
+      "turns": [
+        {
+          "user": "Cumartesi saat kaça kadar açıksınız?",
+          "expect": {
+            "reply_contains": [
+              [
+                "14:00",
+                "14.00",
+                "2 pm",
+                "2pm"
+              ]
+            ],
+            "reply_not_matches": [
+              "yar[ıi]n[^.\\n]{0,20}cumartesi",
+              "cumartesi[^.\\n]{0,5}\\(?\\s*22 kas[ıi]m"
+            ]
+          }
+        }
+      ],
+      "final": {
+        "submitted": false
+      }
+    },
+    {
+      "id": "date_weekday_on_saturday",
+      "category": "dates",
+      "now": "2026-11-21T10:00",
+      "description": "On a Saturday, 'cumartesi' means next Saturday and 'pazartesi' the coming Monday.",
+      "turns": [
+        {
+          "user": "Merve Aydın, 0532 111 11 11. Pazartesi 10:00'a randevu istiyorum, diş taşı temizliği.",
+          "expect": {"fields": {"appointment_datetime": "2026-11-23 10:00"}}
+        },
+        {
+          "user": "Aslında cumartesi 11:00 olsun.",
+          "expect": {"fields": {"appointment_datetime": "2026-11-28 11:00"}, "submitted": false}
+        },
+        {"user": "Evet, onaylıyorum."}
+      ],
+      "final": {"submitted": true}
+    },
+    {
       "id": "rag_cancellation_fee",
       "category": "rag_in_doc",
       "description": "Cancellation policy from the FAQ.",

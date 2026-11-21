@@ -38,8 +38,15 @@ from app.tracing import Tracer
 EVALS_DIR = Path(__file__).resolve().parent
 DEFAULT_CASES_PATH = EVALS_DIR / "cases.json"
 RESULTS_DIR = EVALS_DIR / "results"
-# Friday. Relative dates in cases.json are written against this moment.
+# Friday. Relative dates in cases.json are written against this moment, unless a
+# case sets its own "now" (e.g. to test what "tomorrow" means on a Saturday).
 EVAL_NOW = datetime(2026, 11, 20, 10, 0, tzinfo=CLINIC_TIMEZONE)
+
+
+def case_clock(case: dict[str, Any]) -> datetime:
+    if "now" not in case:
+        return EVAL_NOW
+    return datetime.fromisoformat(case["now"]).replace(tzinfo=CLINIC_TIMEZONE)
 
 
 # --------------------------------------------------------------------------- #
@@ -134,10 +141,11 @@ def evaluate_expectations(
 def run_case(
     case: dict[str, Any], llm: LLMClient, knowledge_base: KnowledgeBase, tracer: Tracer
 ) -> dict[str, Any]:
+    now = case_clock(case)
     agent = FormAgent(
         llm,
         new_dental_form(),
-        clock=lambda: EVAL_NOW,
+        clock=lambda: now,
         submitter=DryRunSubmitter(),
         knowledge_base=knowledge_base,
         tracer=tracer,
