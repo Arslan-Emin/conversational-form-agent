@@ -206,16 +206,28 @@ cp .env.example .env            # then fill in at least DEEPSEEK_API_KEY
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Only for `LLM_PROVIDER=openai` |
 | `JOTFORM_API_KEY`, `JOTFORM_FORM_ID`, `JOTFORM_BASE_URL` | Optional. Without them a built-in example form is used and submissions are dry-run |
 | `TRACE_ENABLED`, `TRACE_DIR`, `TRACE_INCLUDE_CONTENT` | Tracing (on, `logs/traces`, content off) |
+| `RAG_EMBEDDING_MODEL` | Optional fastembed model id, e.g. the smaller MiniLM model on low-RAM hosts |
+| `DEMO_MAX_MESSAGES`, `DAILY_BUDGET_USD` | Optional limits for a public deployment (messages per browser session, daily LLM spend) |
 
 ```bash
 streamlit run streamlit_app.py          # web UI
 python -m app.cli --debug --dry-run     # terminal chat, shows tool calls
 python -m app.jotform questions         # inspect your Jotform form's questions
-pytest                                  # 126 tests, no network, no API keys
+pytest                                  # 130 tests, no network, no API keys
 ruff check . && ruff format --check .
 ```
 
 The first start downloads the embedding model (~1 GB) into `.cache/`.
+
+### Deploying a public demo
+
+The live demo runs on Streamlit Community Cloud. Settings come from the app's
+*Secrets* (copied into environment variables at startup), so the same code runs
+locally and in the cloud. The public demo uses the built-in example form and
+dry-run submissions only (no Jotform key is deployed), and two limits protect the
+API key: `DEMO_MAX_MESSAGES` per browser session and `DAILY_BUDGET_USD`, a trace
+listener ([app/budget.py](app/budget.py)) that adds up the cost of every LLM call
+and pauses the demo for the rest of the day once the budget is spent.
 
 ## Project structure
 

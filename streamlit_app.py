@@ -6,12 +6,21 @@ Run with:  streamlit run streamlit_app.py
 from __future__ import annotations
 
 import json
+import os
 
 import streamlit as st
 from openai import OpenAIError
 
 from app.agent import AgentTurn, FormAgent
-from app.factory import FormSetup, create_traced_llm, create_tracer, load_form_setup
+from app.budget import DailyBudget
+from app.config import get_settings
+from app.factory import (
+    FormSetup,
+    create_knowledge_base,
+    create_traced_llm,
+    create_tracer,
+    load_form_setup,
+)
 from app.jotform import JotformError
 from app.llm_client import LLMClient
 from app.rag import KnowledgeBase
@@ -22,8 +31,25 @@ EXAMPLE_PROMPTS = [
     "İptal edersem ücret alınır mı?",
     "Hi, I'd like to book a check-up next Monday at 10:00",
 ]
+MAX_MESSAGE_CHARS = 500
 
 st.set_page_config(page_title="Form Agent", page_icon="🦷", layout="wide")
+
+
+def load_secrets_into_env() -> None:
+    """Streamlit Community Cloud provides secrets via st.secrets; the app reads
+    settings from environment variables (app/config.py). Copy top-level secrets
+    over, without overriding variables that are already set (e.g. from .env)."""
+    try:
+        secrets = dict(st.secrets)
+    except Exception:  # noqa: BLE001 - no secrets file locally is normal
+        return
+    for key, value in secrets.items():
+        if isinstance(value, str | int | float | bool) and key not in os.environ:
+            os.environ[key] = str(value)
+
+
+load_secrets_into_env()
 
 
 # --------------------------------------------------------------------------- #
@@ -32,8 +58,17 @@ st.set_page_config(page_title="Form Agent", page_icon="🦷", layout="wide")
 
 
 @st.cache_resource
+def get_budget() -> DailyBudget | None:
+    limit = get_settings().daily_budget_usd
+    return DailyBudget(limit) if limit else None
+
+
+@st.cache_resource
 def get_tracer() -> Tracer:
-    return create_tracer()
+    tracer = create_tracer()
+    if (budget := get_budget()) is not None:
+        tracer.add_listener(budget)  # every llm_call's cost counts towards today's total
+    return tracer
 
 
 @st.cache_resource(show_spinner="Connecting to the LLM...")
@@ -48,7 +83,7 @@ def get_form_setup() -> FormSetup:
 
 @st.cache_resource(show_spinner="Loading FAQ knowledge base (first run downloads a model)...")
 def get_knowledge_base() -> KnowledgeBase:
-    return KnowledgeBase.from_markdown_file()
+    return create_knowledge_base()
 
 
 # --------------------------------------------------------------------------- #
@@ -130,8 +165,24 @@ def render_sidebar(agent: FormAgent, setup: FormSetup) -> bool:
     return show_tools
 
 
+def demo_limit_message() -> str | None:
+    """Why the demo can't take another message right now, or None if it can."""
+    budget = get_budget()
+    if budget is not None and budget.exhausted:
+        return (
+            "The demo has reached its daily usage limit. Please come back tomorrow, "
+            "or run it locally (see the README)."
+        )
+    limit = get_settings().demo_max_messages
+    if limit is not None and st.session_state.get("messages_sent", 0) >= limit:
+        return f"This demo allows {limit} messages per session. Reload the page to start over."
+    return None
+
+
 def handle_message(text: str) -> bool:
     """Run one agent turn. Returns False (and shows an error) if the LLM call failed."""
+    # Counted per browser session, across "New conversation" resets.
+    st.session_state.messages_sent = st.session_state.get("messages_sent", 0) + 1
     st.session_state.messages.append({"role": "user", "content": text})
     try:
         with st.spinner("Thinking..."):
@@ -160,15 +211,20 @@ def main() -> None:
         "Ask about prices, hours or cancellation at any time. Demo data only."
     )
 
+    blocked = demo_limit_message()
     clicked = None
-    if not st.session_state.messages:
+    if not st.session_state.messages and not blocked:
         st.markdown("**Try one of these:**")
         columns = st.columns(len(EXAMPLE_PROMPTS))
         for column, prompt in zip(columns, EXAMPLE_PROMPTS, strict=True):
             if column.button(prompt, use_container_width=True):
                 clicked = prompt
 
-    typed = st.chat_input("Type your message...", disabled=agent.state.submitted)
+    typed = st.chat_input(
+        "Type your message...",
+        max_chars=MAX_MESSAGE_CHARS,
+        disabled=agent.state.submitted or blocked is not None,
+    )
     if (message := (typed or clicked)) and handle_message(message):
         st.rerun()  # redraw from the top so the sidebar shows the updated form state
 
@@ -181,6 +237,8 @@ def main() -> None:
 
     if agent.state.submitted:
         st.success("This conversation is complete. Start a new one from the sidebar.")
+    if blocked:
+        st.info(blocked)
 
 
 main()
