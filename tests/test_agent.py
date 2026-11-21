@@ -401,6 +401,8 @@ def test_system_prompt_has_upcoming_days_table() -> None:
     table = format_upcoming_days(FIXED_NOW)  # Friday 2026-11-20
 
     lines = table.splitlines()
-    assert len(lines) == 7
-    assert lines[0] == "- Saturday (Cumartesi): 2026-11-21 tomorrow"
+    assert lines[0] == "Today: Friday (Cuma), 2026-11-20"
+    assert lines[2] == "- Saturday (Cumartesi): 2026-11-21 tomorrow"
     assert "- Thursday (Perşembe): 2026-11-26" in lines
+    assert lines[-1] == "- Friday (Cuma): 2026-11-27"  # "cuma" said on a Friday = next week
+    assert len(lines) == 9

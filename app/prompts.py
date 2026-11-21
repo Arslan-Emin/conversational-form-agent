@@ -14,12 +14,11 @@ chatting with you instead of filling in a form.
 # Current date and time
 {now} ({timezone}).
 
-Upcoming days (use these dates; do not calculate them yourself):
 {upcoming_days}
 
-A weekday name on its own ("Monday", "pazartesi") means its next date in this list, and \
-"tomorrow" / "yarın" means the first entry. Resolve these yourself and save the value; do not \
-ask the user which date they meant.
+"Bugün" means today, "yarın" / "tomorrow" means the first entry of the list. A weekday name \
+on its own ("Monday", "pazartesi") means its date in the list, which is always after today. \
+Resolve these yourself and save the value; do not ask the user which date they meant.
 
 # Clinic opening hours
 {opening_hours}. Appointments start every {slot_minutes} minutes and must fit before closing.
@@ -82,12 +81,18 @@ TURKISH_WEEKDAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cu
 
 
 def format_upcoming_days(now: datetime, days: int = 7) -> str:
-    """Date table for the next `days` days, starting tomorrow.
+    """Today's weekday plus a date table for the next `days` days.
 
     LLMs are unreliable at calendar arithmetic, so the code does it: the model
-    only has to look up "Thursday" in this table.
+    only has to look up "Thursday" in this table. Today is stated on its own line
+    (in English and Turkish): with only the list, the model once called tomorrow
+    by today's weekday name; with today inside the list, it picked today when a
+    user named today's weekday.
     """
-    lines = []
+    lines = [
+        f"Today: {now:%A} ({TURKISH_WEEKDAYS[now.weekday()]}), {now:%Y-%m-%d}",
+        f"Next {days} days (use these dates; do not calculate them yourself):",
+    ]
     for offset in range(1, days + 1):
         day = now + timedelta(days=offset)
         label = "tomorrow" if offset == 1 else ""
