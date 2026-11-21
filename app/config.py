@@ -41,6 +41,10 @@ class Settings:
     trace_dir: str = DEFAULT_TRACE_DIR
     # Off by default: message text and tool arguments can contain personal data.
     trace_include_content: bool = False
+    # Optional: also send trace events to the eval platform (`evalplat serve`),
+    # e.g. http://127.0.0.1:8700/v1/events. None = JSONL files only.
+    trace_http_url: str | None = None
+    trace_http_token: str | None = None
     # fastembed model id; None = the default in app/rag.py. A smaller model can be
     # set for hosts with little RAM.
     rag_embedding_model: str | None = None
@@ -69,6 +73,8 @@ def get_settings() -> Settings:
         trace_enabled=_env_flag("TRACE_ENABLED", True),
         trace_dir=os.getenv("TRACE_DIR") or DEFAULT_TRACE_DIR,
         trace_include_content=_env_flag("TRACE_INCLUDE_CONTENT", False),
+        trace_http_url=os.getenv("TRACE_HTTP_URL") or None,
+        trace_http_token=os.getenv("TRACE_HTTP_TOKEN") or None,
         rag_embedding_model=os.getenv("RAG_EMBEDDING_MODEL") or None,
         demo_max_messages=_env_number("DEMO_MAX_MESSAGES", int),
         daily_budget_usd=_env_number("DAILY_BUDGET_USD", float),

@@ -106,8 +106,11 @@ without sending it; tests mock all HTTP.
 **Tracing** ([app/tracing.py](app/tracing.py)). Every LLM call goes through one
 wrapper that emits a structured event (model, tokens, cost, latency, tools), plus
 events for each tool call and turn, tagged with conversation and turn ids. Events go
-to JSONL for now; `tracer.add_listener()` is the hook for an external eval and
-observability platform.
+to JSONL files, and with `TRACE_HTTP_URL` set also to the
+[eval platform](https://github.com/Arslan-Emin/llm-eval-platform) while the agent
+runs. The HTTP exporter only queues events; a background thread sends them in
+batches, so a slow or unreachable platform never delays a reply (events that cannot
+be delivered are dropped and counted, the JSONL file stays complete).
 
 ## Evaluation
 
@@ -219,6 +222,7 @@ cp .env.example .env            # then fill in at least DEEPSEEK_API_KEY
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Only for `LLM_PROVIDER=openai` |
 | `JOTFORM_API_KEY`, `JOTFORM_FORM_ID`, `JOTFORM_BASE_URL` | Optional. Without them a built-in example form is used and submissions are dry-run |
 | `TRACE_ENABLED`, `TRACE_DIR`, `TRACE_INCLUDE_CONTENT` | Tracing (on, `logs/traces`, content off) |
+| `TRACE_HTTP_URL`, `TRACE_HTTP_TOKEN` | Optional: also send trace events to the eval platform, e.g. `http://127.0.0.1:8700/v1/events` |
 | `RAG_EMBEDDING_MODEL` | Optional fastembed model id, e.g. the smaller MiniLM model on low-RAM hosts |
 | `DEMO_MAX_MESSAGES`, `DAILY_BUDGET_USD` | Optional limits for a public deployment (messages per browser session, daily LLM spend) |
 
@@ -226,7 +230,7 @@ cp .env.example .env            # then fill in at least DEEPSEEK_API_KEY
 streamlit run streamlit_app.py          # web UI
 python -m app.cli --debug --dry-run     # terminal chat, shows tool calls
 python -m app.jotform questions         # inspect your Jotform form's questions
-pytest                                  # 131 tests, no network, no API keys
+pytest                                  # 137 tests, no network, no API keys
 ruff check . && ruff format --check .
 ```
 

@@ -5,7 +5,7 @@ into. Every event is a flat JSON-serializable dict with a `type`, an `event_id`,
 a UTC `timestamp` and the ids of the conversation and turn it belongs to.
 
     tracer = Tracer(listeners=[JsonlFileSink(path)])
-    tracer.add_listener(my_exporter)            # e.g. send events to another service
+    tracer.add_listener(HttpExporter(url))      # also send them to the eval platform
 
 Event types:
 - `llm_call`   one request to the LLM provider: model, tokens, cost, latency, tool names
@@ -21,10 +21,12 @@ Run `python -m app.tracing summary logs/traces/<file>.jsonl` for cost/latency st
 
 from __future__ import annotations
 
+import atexit
 import contextvars
 import json
 import logging
 import math
+import queue
 import sys
 import threading
 import time
@@ -34,6 +36,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from app.llm_client import HistoryItem, LLMClient, LLMResponse, ToolSpec
 from app.pricing import estimate_cost_usd
@@ -113,6 +117,122 @@ class InMemorySink:
 
     def __call__(self, event: TraceEvent) -> None:
         self.events.append(event)
+
+
+class HttpExporter:
+    """Sends events to an HTTP endpoint (the eval platform's `POST /v1/events`).
+
+    Observability must never slow down or break the agent, so the listener only
+    puts the event on a bounded queue; a background thread posts batches. If the
+    endpoint is down, a batch is retried a few times and then dropped, and when the
+    queue is full new events are dropped: both are counted in `dropped`. The JSONL
+    file stays the complete record. Re-sending is safe: the platform ignores event
+    ids it already has.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        token: str | None = None,
+        batch_size: int = 100,
+        flush_interval_s: float = 1.0,
+        max_queue: int = 10_000,
+        max_attempts: int = 3,
+        retry_delay_s: float = 0.5,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.url = url
+        self.batch_size = batch_size
+        self.flush_interval_s = flush_interval_s
+        self.max_attempts = max_attempts
+        self.retry_delay_s = retry_delay_s
+        self.sent = 0
+        self.dropped = 0
+        self._headers = {"Content-Type": "application/json"}
+        if token:
+            self._headers["Authorization"] = f"Bearer {token}"
+        self._client = client or httpx.Client(timeout=5.0)
+        self._queue: queue.Queue[TraceEvent] = queue.Queue(maxsize=max_queue)
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="trace-http-exporter", daemon=True)
+        self._thread.start()
+        # Send what is still queued when the process exits (CLI, eval runs).
+        atexit.register(self.close)
+
+    def __call__(self, event: TraceEvent) -> None:
+        try:
+            self._queue.put_nowait(event)
+        except queue.Full:
+            self._count_dropped(1)
+
+    def flush(self, timeout_s: float = 5.0) -> bool:
+        """Wait until every queued event was sent or dropped; False on timeout."""
+        deadline = time.monotonic() + timeout_s
+        while self._queue.unfinished_tasks:
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.01)
+        return True
+
+    def close(self, timeout_s: float = 5.0) -> None:
+        if self._stop.is_set():
+            return
+        self.flush(timeout_s)
+        self._stop.set()
+        self._thread.join(timeout_s)
+        self._client.close()
+
+    # -- background thread ---------------------------------------------------
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            batch = self._next_batch()
+            if not batch:
+                continue
+            try:
+                self._send(batch)
+            finally:
+                for _ in batch:
+                    self._queue.task_done()
+
+    def _next_batch(self) -> list[TraceEvent]:
+        try:
+            batch = [self._queue.get(timeout=self.flush_interval_s)]
+        except queue.Empty:
+            return []
+        while len(batch) < self.batch_size:
+            try:
+                batch.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+        return batch
+
+    def _send(self, batch: list[TraceEvent]) -> None:
+        body = json.dumps(batch, ensure_ascii=False, default=str).encode("utf-8")
+        problem = ""
+        for attempt in range(self.max_attempts):
+            try:
+                response = self._client.post(self.url, content=body, headers=self._headers)
+            except httpx.HTTPError as error:
+                problem = error.__class__.__name__
+            else:
+                if response.is_success:
+                    with self._lock:
+                        self.sent += len(batch)
+                    return
+                problem = f"HTTP {response.status_code}"
+                if response.status_code < 500 and response.status_code != 429:
+                    break  # a client error (bad token, bad payload) will not fix itself
+            if attempt + 1 < self.max_attempts:
+                time.sleep(self.retry_delay_s * 2**attempt)
+        logger.warning("Dropping %d trace events for %s: %s", len(batch), self.url, problem)
+        self._count_dropped(len(batch))
+
+    def _count_dropped(self, count: int) -> None:
+        with self._lock:
+            self.dropped += count
 
 
 # --------------------------------------------------------------------------- #
