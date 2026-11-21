@@ -19,6 +19,12 @@ def _env_flag(name: str, default: bool) -> bool:
     return default if value is None or value == "" else value.lower() in {"1", "true", "yes"}
 
 
+def _env_number(name: str, cast: type[int] | type[float]) -> int | float | None:
+    """Optional numeric setting; empty or missing means "no limit"."""
+    value = os.getenv(name)
+    return cast(value) if value else None
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_provider: str = DEFAULT_PROVIDER
@@ -35,6 +41,12 @@ class Settings:
     trace_dir: str = DEFAULT_TRACE_DIR
     # Off by default: message text and tool arguments can contain personal data.
     trace_include_content: bool = False
+    # fastembed model id; None = the default in app/rag.py. A smaller model can be
+    # set for hosts with little RAM.
+    rag_embedding_model: str | None = None
+    # Public demo limits (None = unlimited, the default for local use).
+    demo_max_messages: int | None = None
+    daily_budget_usd: float | None = None
 
     @property
     def jotform_configured(self) -> bool:
@@ -57,4 +69,7 @@ def get_settings() -> Settings:
         trace_enabled=_env_flag("TRACE_ENABLED", True),
         trace_dir=os.getenv("TRACE_DIR") or DEFAULT_TRACE_DIR,
         trace_include_content=_env_flag("TRACE_INCLUDE_CONTENT", False),
+        rag_embedding_model=os.getenv("RAG_EMBEDDING_MODEL") or None,
+        demo_max_messages=_env_number("DEMO_MAX_MESSAGES", int),
+        daily_budget_usd=_env_number("DAILY_BUDGET_USD", float),
     )
