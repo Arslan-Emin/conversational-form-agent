@@ -18,9 +18,13 @@ import sys
 from openai import OpenAIError
 
 from app.agent import AgentTurn, FormAgent
-from app.factory import create_traced_llm, create_tracer, load_form_setup
+from app.factory import (
+    create_knowledge_base,
+    create_traced_llm,
+    create_tracer,
+    load_form_setup,
+)
 from app.jotform import JotformError
-from app.rag import KnowledgeBase
 from app.state import FormState
 
 EXIT_COMMANDS = {"exit", "quit", "q", "çıkış"}
@@ -70,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     knowledge_base = None
     if not args.no_rag:
         print("Loading FAQ knowledge base (first run downloads the embedding model)...")
-        knowledge_base = KnowledgeBase.from_markdown_file()
+        knowledge_base = create_knowledge_base()
 
     live = setup.can_submit_live and not args.dry_run
     agent = FormAgent(

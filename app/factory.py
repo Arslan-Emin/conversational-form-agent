@@ -16,6 +16,7 @@ from app.jotform import (
     fields_from_questions,
 )
 from app.llm_client import LLMClient, create_llm_client
+from app.rag import DEFAULT_EMBEDDING_MODEL, FastEmbedEmbedder, KnowledgeBase
 from app.state import DENTAL_APPOINTMENT_FIELDS, FieldSpec, FormState
 from app.tracing import JsonlFileSink, TracedLLMClient, Tracer
 
@@ -39,6 +40,13 @@ def create_tracer(
         trace_dir = PROJECT_ROOT / trace_dir
     name = file_name or f"{datetime.now(UTC):%Y-%m-%d}.jsonl"
     return Tracer([JsonlFileSink(trace_dir / name)], include_content=include_content)
+
+
+def create_knowledge_base(settings: Settings | None = None) -> KnowledgeBase:
+    """FAQ knowledge base with the configured embedding model (downloads it on first use)."""
+    settings = settings or get_settings()
+    model = settings.rag_embedding_model or DEFAULT_EMBEDDING_MODEL
+    return KnowledgeBase.from_markdown_file(embedder=FastEmbedEmbedder(model))
 
 
 def create_traced_llm(settings: Settings | None = None, tracer: Tracer | None = None) -> LLMClient:

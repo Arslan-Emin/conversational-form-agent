@@ -28,7 +28,7 @@ from typing import Any
 
 from app.agent import CLINIC_TIMEZONE, FormAgent
 from app.config import get_settings
-from app.factory import create_traced_llm, create_tracer
+from app.factory import create_knowledge_base, create_traced_llm, create_tracer
 from app.jotform import DryRunSubmitter
 from app.llm_client import LLMClient
 from app.rag import KnowledgeBase
@@ -354,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     llm = create_traced_llm(settings, tracer)
     runs = [case for case in cases for _ in range(args.repeats)]
     print(f"Running {len(cases)} case(s) x {args.repeats} on {llm.model}...")
-    knowledge_base = KnowledgeBase.from_markdown_file()
+    knowledge_base = create_knowledge_base(settings)
 
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
