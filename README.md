@@ -11,6 +11,10 @@ Built from scratch (no agent framework) as a small version of what products like
 Jotform AI Agents do, with an **evaluation suite and tracing** that measure whether it
 actually works. Turkish and English.
 
+**Live demo: [conversational-form-agent.streamlit.app](https://conversational-form-agent.streamlit.app/)**
+(example form, dry-run submissions, a few dozen messages per session; the app may
+take a minute to wake up if nobody used it recently)
+
 ![Streamlit demo: chat on the right, live form state on the left](docs/screenshot.jpg)
 
 ```text
@@ -32,22 +36,22 @@ Agent: Randevunuz başarıyla alındı ✅                          ← Jotform 
 
 ## Results at a glance
 
-From the latest eval run: 26 scripted conversations × 3 repeats = 78 runs against
-`deepseek-flash` ([raw results](evals/results/20261119-231456_deepseek-flash.json),
-[trace summary](evals/results/20261119-231456_trace_summary.json)).
+From the latest eval run: 30 scripted conversations × 3 repeats = 90 runs against
+`deepseek-flash` ([raw results](evals/results/20261121-152221_deepseek-flash.json),
+[trace summary](evals/results/20261121-152221_trace_summary.json)).
 
 | Metric | Result |
 |---|---|
-| Conversations passing every check | **78 / 78** |
-| Field extraction accuracy | 168 / 168 checks |
+| Conversations passing every check | **90 / 90** |
+| Field extraction accuracy | 180 / 180 checks |
 | RAG answer accuracy (in-doc and not-in-doc questions) | 36 / 36 checks |
-| Wrong or premature submissions (no confirmation, prompt injection, invalid data) | **0 / 33** |
-| Missed submissions (user confirmed a complete form) | 0 / 45 |
-| Invalid values caught by code validation | 11 |
-| Avg. cost per conversation | **$0.00067** (upper bound, peak pricing) |
-| LLM call latency p50 / p95 | 0.94 s / 1.61 s |
-| Time per user message p50 / p95 | 1.91 s / 2.72 s |
-| Input tokens served from the prompt cache | 89% |
+| Wrong or premature submissions (no confirmation, prompt injection, invalid data) | **0 / 39** |
+| Missed submissions (user confirmed a complete form) | 0 / 51 |
+| Invalid values caught by code validation | 13 |
+| Avg. cost per conversation | **$0.00065** (upper bound, peak pricing) |
+| LLM call latency p50 / p95 | 0.99 s / 1.47 s |
+| Time per user message p50 / p95 | 2.01 s / 2.64 s |
+| Input tokens served from the prompt cache | 90% |
 
 A perfect score mostly says the suite is now too easy for this model, see
 [Limitations](#limitations-and-future-work). The more useful part is that the suite
@@ -108,17 +112,18 @@ observability platform.
 ## Evaluation
 
 ```bash
-python -m evals.run_evals --repeats 3      # 26 conversations x 3 against the real LLM (~$0.05)
+python -m evals.run_evals --repeats 3      # 30 conversations x 3 against the real LLM (~$0.06)
 python -m evals.retrieval_benchmark        # retrieval only, no LLM calls
 python -m app.tracing summary logs/traces/<file>.jsonl
 ```
 
-[evals/cases.json](evals/cases.json) holds scripted conversations in 8 categories:
-normal flow, missing info, invalid info, change of mind, FAQ questions with and
-without an answer in the document, no confirmation, and prompt injection. Every check
+[evals/cases.json](evals/cases.json) holds scripted conversations in 9 categories:
+normal flow, missing info, invalid info, change of mind, relative dates, FAQ questions
+with and without an answer in the document, no confirmation, and prompt injection. Every check
 is done in code: which fields are saved (or must *not* be saved, e.g. no time may be
 guessed from "afternoon"), whether the form was submitted, what the reply contains,
-that no price is invented, which tools were called. The clock is pinned and
+that no price is invented, which tools were called. The clock is pinned (per case if
+needed, e.g. to a Saturday) and
 submissions are dry-run, so relative dates and results are reproducible; `--repeats`
 deals with the LLM itself not being deterministic.
 
@@ -129,6 +134,7 @@ deals with the LLM itself not being deterministic.
 | [baseline](evals/results/20261119-225827_deepseek-flash_baseline.json) | none | 72 / 75 | 3 / 42 |
 | [fix 1](evals/results/20261119-225955_deepseek-flash.json) | Saved values are final in the prompt; re-saving an identical value no longer invalidates the user's confirmation | 75 / 75 | 0 / 42 |
 | [fix 2](evals/results/20261119-231456_deepseek-flash.json) | New per-turn checks + a date table in the system prompt | 78 / 78 | 0 / 45 |
+| [fix 3](evals/results/20261121-152221_deepseek-flash.json) | Today's weekday on its own line in the date table + 4 date cases (pinned to a Friday and a Saturday) | 90 / 90 | 0 / 51 |
 
 Single runs passed. Only with repeats did a pattern show up: the model asked
 *"which Monday do you mean?"* instead of saving the date, so the summary came one turn
@@ -137,6 +143,13 @@ felt ambiguous to the model, so it postponed saving them. Fix 2 added eval check
 that a value given early is saved *in that same turn*, and moved calendar arithmetic
 into code: the system prompt now lists the next seven days with their dates, and the
 model only looks them up.
+
+Fix 3 came from the live demo: asked on a Saturday about Saturday hours, the agent
+called tomorrow *"Saturday the 22nd"*. The eval clock had always been a Friday, so
+date cases were added that pin it to a Saturday. A first attempt (putting today inside
+the date list) introduced a regression the new cases caught at once: the model then
+read *"Saturday"* as today instead of next week. Stating today on a separate line fixed
+both.
 
 Two bugs in the eval code itself were found by unit tests: a `"TL"` (lira) check
 matched the letters inside *fiya**tl**arı* ("prices"), and Python's `casefold()` maps
@@ -213,7 +226,7 @@ cp .env.example .env            # then fill in at least DEEPSEEK_API_KEY
 streamlit run streamlit_app.py          # web UI
 python -m app.cli --debug --dry-run     # terminal chat, shows tool calls
 python -m app.jotform questions         # inspect your Jotform form's questions
-pytest                                  # 130 tests, no network, no API keys
+pytest                                  # 131 tests, no network, no API keys
 ruff check . && ruff format --check .
 ```
 
@@ -253,7 +266,7 @@ tests/              unit tests (fake LLM, mocked HTTP, fake embedder)
 
 ## Limitations and future work
 
-- **The eval suite is small and scripted.** 26 conversations with fixed user messages
+- **The eval suite is small and scripted.** 30 conversations with fixed user messages
   are far less varied than real users, and a perfect score means the suite needs
   harder cases. Next: an LLM-simulated user and adversarial cases.
 - **Reply checks are keyword based.** "Does the answer contain *24 saat*?" can miss
