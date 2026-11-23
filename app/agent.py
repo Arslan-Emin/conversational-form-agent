@@ -96,6 +96,7 @@ class FormAgent:
         history_checkpoint = len(self.history)
         started = time.perf_counter()
         with trace_context(conversation_id=self.conversation_id, turn_index=self._turn_index):
+            self.tools.observe_user_message(text)
             try:
                 turn = self._run_turn(text)
             except Exception as error:
