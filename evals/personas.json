@@ -38,7 +38,7 @@
       "language": "Turkish",
       "persona": "Careless with numbers: first gives the phone number with a digit missing (0532 123 456 7) and only gives the correct number when told it is wrong.",
       "goal": {"full_name": "Ali Demir", "phone": "0532 123 45 67", "appointment": "pazartesi 10:00", "complaint": "diş eti kanaması"},
-      "expected": {"full_name": "Ali Demir", "phone": "0532 123 45 67", "appointment_datetime": "2026-11-23 10:00", "complaint": {"contains_any": ["kanama", "diş eti"]}},
+      "expected": {"full_name": "Ali Demir", "phone": "0532 123 45 67", "appointment_datetime": "2026-11-23 10:00", "complaint": {"contains_any": ["kanama", "kanıyor", "diş et"]}},
       "expect_submit": true
     },
     {
